@@ -1,0 +1,6 @@
+@CloneEbay.Api_HostAddress = http://localhost:5026
+
+GET {{CloneEbay.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

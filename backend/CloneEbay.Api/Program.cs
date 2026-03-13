@@ -1,131 +1,190 @@
-﻿using CloneEbay.Api.Models;
-using CloneEbay.Api.Middleware;
-using Microsoft.EntityFrameworkCore;
-using CloneEbay.Api.Services.Auth;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
-using StackExchange.Redis;
-using System.Text;
-using Microsoft.AspNetCore.RateLimiting;
+﻿using System.Text;
 using System.Threading.RateLimiting;
-using CloneEbay.Api.Dtos;
-
+using CloneEbay.Api.Middleware;
+using CloneEbay.Application;
+using CloneEbay.Application.Auth;
+using CloneEbay.Application.Hubs;
+using CloneEbay.Application.Notifications;
+using CloneEbay.Contracts;
+using CloneEbay.Infrastructure;
+using CloneEbay.Infrastructure.Email;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ======================
-// Add services
+// Services
 
-// JWT options + services
-builder.Services.Configure<JwtOptions>(
-    builder.Configuration.GetSection("Jwt"));
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 
-builder.Services.AddScoped<JwtService>();
-builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddApplication();
+builder.Services.AddInfrastructure(builder.Configuration);
 
-// Redis
-builder.Services.AddSingleton<IConnectionMultiplexer>(
-    ConnectionMultiplexer.Connect(
-        builder.Configuration["Redis:Connection"]!));
+// Controllers + custom validation response
+builder.Services
+    .AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var correlationId =
+                context.HttpContext.Items["X-Correlation-Id"]?.ToString()
+                ?? context.HttpContext.TraceIdentifier;
 
-builder.Services.AddScoped<ITokenBlacklistService, RedisTokenBlacklistService>();
+            var firstError = context.ModelState
+                .Where(x => x.Value?.Errors.Count > 0)
+                .SelectMany(x => x.Value!.Errors)
+                .Select(e => string.IsNullOrWhiteSpace(e.ErrorMessage)
+                    ? "Invalid value."
+                    : e.ErrorMessage)
+                .FirstOrDefault() ?? "Validation failed.";
 
-// Controllers
-builder.Services.AddControllers();
+            var payload = ApiResponse<object>.Fail(
+                message: firstError,
+                code: "VALIDATION_ERROR",
+                correlationId: correlationId
+            );
 
-// EF Core
-builder.Services.AddDbContext<CloneEbayDbContext>(options =>
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("MyCnn")
-    ));
+            return new BadRequestObjectResult(payload);
+        };
+    });
 
-// OpenAPI (.NET 9)
+// ======================
+// CORS
+
+var feOrigin = builder.Configuration["Frontend:BaseUrl"] ?? "http://localhost:5173";
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("fe", policy =>
+    {
+        policy.WithOrigins(feOrigin)
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
+});
+
+// ======================
+// Cookie policy
+
+var cookieSecure =
+    bool.Parse(builder.Configuration["Auth:RefreshCookieSecure"] ?? "false");
+
+builder.Services.Configure<CookiePolicyOptions>(options =>
+{
+    options.MinimumSameSitePolicy = SameSiteMode.Lax;
+    options.HttpOnly = Microsoft.AspNetCore.CookiePolicy.HttpOnlyPolicy.Always;
+    options.Secure = cookieSecure ? CookieSecurePolicy.Always : CookieSecurePolicy.None;
+});
+
+// ======================
+// OpenAPI
+
 builder.Services.AddOpenApi();
 
 // ======================
-// JWT Authentication + Blacklist check (THÊM Ở ĐÂY)
+// JWT Authentication
 
-var jwt = builder.Configuration.GetSection("Jwt");
-var key = jwt["Key"]!;
+var jwtSection = builder.Configuration.GetSection("Jwt");
+var jwtKey = jwtSection["Key"]
+    ?? throw new InvalidOperationException("Jwt:Key is missing in configuration.");
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
-            ValidIssuer = jwt["Issuer"],
+            ValidIssuer = jwtSection["Issuer"],
             ValidateAudience = true,
-            ValidAudience = jwt["Audience"],
+            ValidAudience = jwtSection["Audience"],
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(jwtKey)),
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(10)
         };
 
         options.Events = new JwtBearerEvents
         {
-            OnTokenValidated = async ctx =>
+            OnTokenValidated = async context =>
             {
-                var blacklist = ctx.HttpContext.RequestServices
+                var blacklist = context.HttpContext.RequestServices
                     .GetRequiredService<ITokenBlacklistService>();
 
-                var auth = ctx.HttpContext.Request.Headers.Authorization.ToString();
-                if (!auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                var authHeader = context.HttpContext.Request.Headers.Authorization.ToString();
+
+                if (!authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
                     return;
 
-                var token = auth["Bearer ".Length..].Trim();
+                var token = authHeader["Bearer ".Length..].Trim();
 
                 if (await blacklist.IsBlacklistedAsync(token))
                 {
-                    ctx.Fail("Token revoked");
+                    context.Fail("Token revoked");
                 }
             }
         };
     });
 
+// ======================
+// Rate Limiter
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    // limit chung cho auth (theo IP) - demo
-    options.AddPolicy("auth", httpContext =>
+    options.AddPolicy("auth", _ =>
         RateLimitPartition.GetFixedWindowLimiter(
-            //partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             partitionKey: "global",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 25,               // 20 req
-                Window = TimeSpan.FromMinutes(1),// / 1 phút
+                PermitLimit = 25,
+                Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0
             }));
 
     options.OnRejected = async (context, token) =>
     {
-        var cid = context.HttpContext.Items["X-Correlation-Id"]?.ToString();
+        var correlationId =
+            context.HttpContext.Items["X-Correlation-Id"]?.ToString()
+            ?? context.HttpContext.TraceIdentifier;
+
         context.HttpContext.Response.ContentType = "application/json";
 
         var payload = ApiResponse<object>.Fail(
-            message: "Too many requests",
+            message: "Too many requests.",
             code: "RATE_LIMITED",
-            correlationId: cid
+            correlationId: correlationId
         );
 
-        await context.HttpContext.Response.WriteAsJsonAsync(payload, cancellationToken: token);
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            payload,
+            cancellationToken: token);
     };
 });
 
 builder.Services.AddAuthorization();
 
 // ======================
+// Build app
 
 var app = builder.Build();
 
 // ======================
-// Configure pipeline
+// Pipeline
 
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<GlobalExceptionMiddleware>();
+
+app.UseCors("fe");
+
+app.UseCookiePolicy();
 
 if (app.Environment.IsDevelopment())
 {
@@ -133,35 +192,48 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
 app.UseRateLimiter();
+app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseStatusCodePages(async ctx =>
+app.MapHub<AuctionHub>("/hubs/auction");
+app.MapControllers();
+
+// ======================
+// Status code response
+
+app.UseStatusCodePages(async context =>
 {
-    var res = ctx.HttpContext.Response;
-    if (res.HasStarted) return;
+    var response = context.HttpContext.Response;
 
-    var cid = ctx.HttpContext.Items["X-Correlation-Id"]?.ToString();
+    if (response.HasStarted)
+        return;
 
-    if (res.StatusCode is 404 or 405)
+    var correlationId =
+        context.HttpContext.Items["X-Correlation-Id"]?.ToString()
+        ?? context.HttpContext.TraceIdentifier;
+
+    if (response.StatusCode is 404 or 405)
     {
-        res.ContentType = "application/json";
+        response.ContentType = "application/json";
 
-        var (code, message) = res.StatusCode switch
+        var (code, message) = response.StatusCode switch
         {
-            404 => ("NOT_FOUND", "Route not found"),
-            405 => ("METHOD_NOT_ALLOWED", "Method not allowed"),
-            _ => ("ERROR", "Error")
+            404 => ("NOT_FOUND", "Route not found."),
+            405 => ("METHOD_NOT_ALLOWED", "Method not allowed."),
+            _ => ("ERROR", "Error.")
         };
 
-        var payload = ApiResponse<object>.Fail(message, code, cid);
-        await res.WriteAsJsonAsync(payload);
+        var payload = ApiResponse<object>.Fail(
+            message: message,
+            code: code,
+            correlationId: correlationId
+        );
+
+        await response.WriteAsJsonAsync(payload);
     }
 });
-
-app.MapControllers();
 
 app.Run();

@@ -1,0 +1,79 @@
+.sell-entry-page {
+    max-width: 640px;
+    margin: 2rem auto;
+    padding: 0 1.5rem;
+}
+
+.sell-entry-card {
+    background: #fff;
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.04);
+    padding: 2.5rem 2rem;
+}
+
+.sell-entry-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    color: #6b7280;
+    gap: 1rem;
+}
+
+.sell-entry-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e5e7eb;
+    border-top-color: #2563eb;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.sell-entry-error {
+    text-align: center;
+    padding: 2rem;
+}
+
+.sell-entry-error .error-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.sell-entry-error h2 {
+    color: #dc2626;
+    font-size: 1.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.sell-entry-error p {
+    color: #6b7280;
+    margin-bottom: 0.25rem;
+}
+
+.sell-entry-error .error-detail {
+    font-size: 0.8125rem;
+    color: #9ca3af;
+}
+
+.sell-entry-error .retry-btn {
+    margin-top: 1rem;
+    padding: 0.5rem 1.25rem;
+    background-color: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+
+.sell-entry-error .retry-btn:hover {
+    background-color: #1d4ed8;
+}

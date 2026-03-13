@@ -1,7 +1,8 @@
 ﻿using System.Net;
 using System.Text.Json;
-using CloneEbay.Api.Dtos;
-using CloneEbay.Api.Services.Auth;
+using CloneEbay.Contracts;
+using CloneEbay.Domain.Exceptions;
+using Microsoft.EntityFrameworkCore;
 
 namespace CloneEbay.Api.Middleware;
 
@@ -9,6 +10,11 @@ public class GlobalExceptionMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<GlobalExceptionMiddleware> _logger;
+
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
 
     public GlobalExceptionMiddleware(RequestDelegate next, ILogger<GlobalExceptionMiddleware> logger)
     {
@@ -33,20 +39,29 @@ public class GlobalExceptionMiddleware
                 correlationId,
                 context.Request.Path);
 
+            if (context.Response.HasStarted)
+            {
+                _logger.LogWarning("Response already started | cid={cid}", correlationId);
+                throw;
+            }
+
             await WriteErrorAsync(context, ex, correlationId);
         }
     }
 
-    private static Task WriteErrorAsync(
-    HttpContext context,
-    Exception ex,
-    string correlationId)
+    private static Task WriteErrorAsync(HttpContext context, Exception ex, string correlationId)
     {
         int statusCode;
         string code;
         string message;
 
-        if (ex is AuthException authEx)
+        if (ex is AppException appEx)
+        {
+            statusCode = appEx.StatusCode;
+            code = appEx.Code;
+            message = appEx.Message;
+        }
+        else if (ex is AuthException authEx)
         {
             if (authEx.Unauthorized)
             {
@@ -67,11 +82,17 @@ public class GlobalExceptionMiddleware
             code = "BAD_REQUEST";
             message = ex.Message;
         }
+        else if (ex is DbUpdateException)
+        {
+            statusCode = (int)HttpStatusCode.Conflict;
+            code = "DB_CONFLICT";
+            message = "Database conflict.";
+        }
         else
         {
             statusCode = (int)HttpStatusCode.InternalServerError;
             code = "INTERNAL_ERROR";
-            message = "Something went wrong";
+            message = "Something went wrong.";
         }
 
         context.Response.StatusCode = statusCode;
@@ -83,15 +104,6 @@ public class GlobalExceptionMiddleware
             correlationId: correlationId
         );
 
-        var json = JsonSerializer.Serialize(
-            response,
-            new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            }
-        );
-
-        return context.Response.WriteAsync(json);
+        return context.Response.WriteAsync(JsonSerializer.Serialize(response, JsonOpts));
     }
-
 }

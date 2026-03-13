@@ -1,6 +1,6 @@
 ﻿using System.Security.Claims;
-using CloneEbay.Api.Dtos;
-using CloneEbay.Api.Services.Auth;
+using CloneEbay.Contracts;
+using CloneEbay.Domain.Exceptions;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CloneEbay.Api.Controllers;

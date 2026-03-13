@@ -1,4 +1,4 @@
-import { createContext, useState, useEffect, useContext } from 'react';
+import { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import { getMe } from '../api/authApi';
 
 const AuthContext = createContext();
@@ -29,7 +29,11 @@ export const AuthProvider = ({ children }) => {
                     }
                 } catch (error) {
                     console.error('Failed to fetch user:', error);
-                    localStorage.removeItem('accessToken');
+                    // Don't clear token here — the interceptor may have already
+                    // refreshed and retried. Only clear if truly unauthorized.
+                    if (error.status === 401) {
+                        localStorage.removeItem('accessToken');
+                    }
                 }
             }
             setLoading(false);
@@ -38,19 +42,29 @@ export const AuthProvider = ({ children }) => {
         initAuth();
     }, []);
 
-    const loginUser = (userData, token) => {
+    const setToken = useCallback((token) => {
+        if (token) {
+            localStorage.setItem('accessToken', token);
+        } else {
+            localStorage.removeItem('accessToken');
+        }
+    }, []);
+
+    const loginUser = useCallback((userData, token) => {
         localStorage.setItem('accessToken', token);
         setUser(userData);
-    };
+    }, []);
 
-    const logoutUser = () => {
+    const logoutUser = useCallback(() => {
         localStorage.removeItem('accessToken');
         setUser(null);
-    };
+    }, []);
 
     const value = {
         user,
         loading,
+        setUser,
+        setToken,
         loginUser,
         logoutUser,
         isAuthenticated: !!user,

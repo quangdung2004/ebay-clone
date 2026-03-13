@@ -1,17 +1,20 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { logout as logoutApi } from '../api/authApi';
+import { useToast } from '../components/Toast';
 import './Header.css';
 
 const Header = () => {
-    const { isAuthenticated, logoutUser } = useAuth();
+    const { isAuthenticated, user, logoutUser } = useAuth();
     const navigate = useNavigate();
+    const { showError } = useToast();
 
     const handleLogout = async () => {
         try {
             await logoutApi();
         } catch (error) {
             console.error('Logout error:', error);
+            showError(error.message || 'Logout failed, clearing local session.');
         } finally {
             logoutUser();
             navigate('/login');
@@ -28,6 +31,20 @@ const Header = () => {
                 <nav className="header-nav">
                     {isAuthenticated ? (
                         <>
+                            <Link to="/sell/my-products" className="header-link">
+                                My Products
+                            </Link>
+                            <Link to="/sell" className="header-link sell-link">
+                                + Sell
+                            </Link>
+                            <Link to="/stores/me" className="header-link">
+                                My Store
+                            </Link>
+                            {user && (
+                                <span className="header-user">
+                                    {user.username || user.email}
+                                </span>
+                            )}
                             <Link to="/profile" className="header-link">
                                 Profile
                             </Link>

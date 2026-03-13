@@ -1,0 +1,56 @@
+/* ---------- Spinner ---------- */
+.loading-spinner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 2rem;
+}
+
+.loading-spinner__circle {
+    border-radius: 50%;
+    border-style: solid;
+    border-color: #e5e7eb;
+    border-top-color: #2563eb;
+    animation: ls-spin 0.75s linear infinite;
+}
+
+/* Sizes */
+.loading-spinner--sm .loading-spinner__circle {
+    width: 1.25rem;
+    height: 1.25rem;
+    border-width: 2px;
+}
+
+.loading-spinner--md .loading-spinner__circle {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-width: 3px;
+}
+
+.loading-spinner--lg .loading-spinner__circle {
+    width: 3.5rem;
+    height: 3.5rem;
+    border-width: 4px;
+}
+
+.loading-spinner__text {
+    color: #6b7280;
+    font-size: 0.9375rem;
+}
+
+/* Overlay mode */
+.loading-spinner__overlay {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 240px;
+    width: 100%;
+}
+
+@keyframes ls-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}

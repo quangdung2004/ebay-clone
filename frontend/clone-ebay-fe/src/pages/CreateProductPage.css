@@ -1,0 +1,75 @@
+.create-product-page {
+    min-height: calc(100vh - 80px);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+    background: #f9fafb;
+}
+
+.cpp-card {
+    background: #fff;
+    border-radius: 0.75rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+    padding: 2.5rem;
+    width: 100%;
+    max-width: 640px;
+}
+
+.cpp-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #111827;
+    margin-bottom: 0.375rem;
+    text-align: center;
+}
+
+.cpp-subtitle {
+    color: #6b7280;
+    text-align: center;
+    margin-bottom: 2rem;
+    font-size: 0.9rem;
+}
+
+.cpp-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.cpp-textarea {
+    resize: vertical;
+    min-height: 80px;
+    font-family: inherit;
+}
+
+.cpp-row {
+    display: flex;
+    gap: 1rem;
+}
+
+/* Reuse form-input / form-label / form-group from Login.css */
+.cpp-form .form-input {
+    padding: 0.75rem 1rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    transition: border-color 0.2s;
+    width: 100%;
+}
+
+.cpp-form .form-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.12);
+}
+
+@media (max-width: 600px) {
+    .cpp-row {
+        flex-direction: column;
+    }
+
+    .cpp-card {
+        padding: 1.5rem;
+    }
+}

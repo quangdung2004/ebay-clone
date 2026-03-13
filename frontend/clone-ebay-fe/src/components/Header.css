@@ -31,6 +31,15 @@
   align-items: center;
 }
 
+.header-user {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  padding: 0.375rem 0.75rem;
+  background-color: #f3f4f6;
+  border-radius: 9999px;
+}
+
 .header-link {
   padding: 0.5rem 1rem;
   color: #374151;
@@ -52,6 +61,17 @@
 
 .header-link.register-link:hover {
   background-color: #1d4ed8;
+}
+
+.header-link.sell-link {
+  background-color: #16a34a;
+  color: white;
+  font-weight: 600;
+}
+
+.header-link.sell-link:hover {
+  background-color: #15803d;
+  color: white;
 }
 
 .header-button {

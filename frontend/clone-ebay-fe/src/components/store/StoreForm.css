@@ -1,0 +1,115 @@
+.store-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.store-form .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.store-form .form-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+.store-form .form-input {
+    padding: 0.625rem 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    font-size: 0.9375rem;
+    color: #111827;
+    background-color: #fff;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    outline: none;
+}
+
+.store-form .form-input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.store-form .form-input:disabled {
+    background-color: #f3f4f6;
+    cursor: not-allowed;
+}
+
+.store-form .form-textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.store-form .banner-preview {
+    margin-top: 0.5rem;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+}
+
+.store-form .banner-preview img {
+    width: 100%;
+    max-height: 200px;
+    object-fit: cover;
+    display: block;
+}
+
+.store-form .banner-preview-empty {
+    width: 100%;
+    height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 100%);
+    color: #6b7280;
+    font-size: 0.875rem;
+}
+
+.store-form .form-error {
+    padding: 0.75rem 1rem;
+    background-color: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 0.5rem;
+    color: #dc2626;
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+.store-form .form-error .error-code {
+    font-weight: 600;
+    margin-right: 0.25rem;
+}
+
+.store-form .form-error .error-correlation {
+    display: block;
+    font-size: 0.75rem;
+    color: #9ca3af;
+    margin-top: 0.25rem;
+}
+
+.store-form .submit-btn {
+    padding: 0.75rem 1.5rem;
+    background-color: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.1s;
+}
+
+.store-form .submit-btn:hover:not(:disabled) {
+    background-color: #1d4ed8;
+}
+
+.store-form .submit-btn:active:not(:disabled) {
+    transform: scale(0.98);
+}
+
+.store-form .submit-btn:disabled {
+    background-color: #93c5fd;
+    cursor: not-allowed;
+}

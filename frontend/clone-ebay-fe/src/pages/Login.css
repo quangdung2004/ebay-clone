@@ -76,6 +76,41 @@
     cursor: not-allowed;
 }
 
+.form-input--error {
+    border-color: #dc2626;
+}
+
+.form-input--error:focus {
+    border-color: #dc2626;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+}
+
+/* Remember me + forgot password row */
+.form-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: #374151;
+    cursor: pointer;
+    user-select: none;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    accent-color: #2563eb;
+    cursor: pointer;
+}
+
 .submit-button {
     padding: 0.875rem 1.5rem;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -120,4 +155,68 @@
 .auth-link:hover {
     color: #1d4ed8;
     text-decoration: underline;
+}
+
+/* Verify email / success states */
+.verify-info {
+    text-align: center;
+    padding: 1rem 0;
+}
+
+.verify-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+.verify-icon-success {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 4rem;
+    height: 4rem;
+    border-radius: 50%;
+    background-color: #dcfce7;
+    color: #16a34a;
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.verify-icon-error {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 4rem;
+    height: 4rem;
+    border-radius: 50%;
+    background-color: #fee2e2;
+    color: #dc2626;
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.verify-hint {
+    color: #6b7280;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    margin-top: 0.5rem;
+}
+
+.verify-spinner {
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 3px solid #e5e7eb;
+    border-top-color: #667eea;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 1rem;
+}
+
+.success-text {
+    color: #16a34a;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
 }

@@ -1,0 +1,131 @@
+.address-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.address-layout {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 24px;
+}
+
+.address-list-card,
+.address-form-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.address-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.address-item {
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.address-item.active {
+  border-color: #3665f3;
+  box-shadow: 0 0 0 3px rgba(54, 101, 243, 0.12);
+}
+
+.address-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.address-select-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.address-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.address-badge {
+  font-size: 12px;
+  background: #eef2ff;
+  color: #3665f3;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.address-form {
+  display: grid;
+  gap: 12px;
+}
+
+.address-input {
+  height: 44px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 0 12px;
+}
+
+.address-checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.address-save-btn,
+.address-add-btn,
+.address-use-btn,
+.address-edit-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.address-save-btn,
+.address-add-btn,
+.address-use-btn {
+  background: #3665f3;
+  color: #fff;
+}
+
+.address-edit-btn {
+  background: #f43f5e;
+  color: #fff;
+}
+
+.address-empty {
+  color: #6b7280;
+}
+
+.address-use-btn {
+  margin-top: 8px;
+}
+
+@media (max-width: 768px) {
+  .address-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .address-item-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

@@ -18,6 +18,9 @@ import CreateStorePage from './pages/CreateStorePage';
 import MyStorePage from './pages/MyStorePage';
 import MyProductsPage from './pages/MyProductsPage';
 import EditProductPage from './pages/EditProductPage';
+import OrdersPage from './pages/OrdersPage';
+import CartPage from './pages/CartPage';
+import AddressesPage from './pages/AddressesPage';
 import './App.css';
 
 function App() {
@@ -29,9 +32,9 @@ function App() {
             <div className="app">
               <Header />
               <Routes>
-                {/* Product pages */}
                 <Route path="/" element={<ProductListPage />} />
                 <Route path="/products/:id" element={<ProductDetailPage />} />
+
                 <Route
                   path="/sell"
                   element={
@@ -65,7 +68,6 @@ function App() {
                   }
                 />
 
-                {/* Store pages */}
                 <Route
                   path="/stores/create"
                   element={
@@ -82,8 +84,31 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
+                <Route
+                  path="/orders"
+                  element={
+                    <ProtectedRoute>
+                      <OrdersPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/cart"
+                  element={
+                    <ProtectedRoute>
+                      <CartPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/addresses"
+                  element={
+                    <ProtectedRoute>
+                      <AddressesPage />
+                    </ProtectedRoute>
+                  }
+                />
 
-                {/* Auth pages */}
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/verify-email" element={<VerifyEmail />} />

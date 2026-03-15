@@ -1,3 +1,5 @@
+using CloneEbay.Application.Orders;
+using CloneEbay.Infrastructure.Orders;
 using CloneEbay.Application.Auth;
 using CloneEbay.Application.Auctions;
 using CloneEbay.Application.Bids;
@@ -86,6 +88,7 @@ public static class DependencyInjection
         services.AddScoped<ICategoryService, CategoryService>();
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IStoreService, StoreService>();
+        services.AddScoped<IOrderService, OrderService>();
 
         // Realtime + messaging
         services.AddSingleton<AuctionRealtimeNotifier>();
@@ -94,6 +97,7 @@ public static class DependencyInjection
         // Background services
         services.AddHostedService<AuctionClosingBackgroundService>();
         services.AddHostedService<AuctionWinnerEmailConsumer>();
+        
 
         return services;
     }

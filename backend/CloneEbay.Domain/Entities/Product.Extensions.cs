@@ -13,4 +13,14 @@ public partial class Product
     public bool? isDeleted { get; set; }
 
     public DateTime? deletedAt { get; set; }
+
+    public int? weightGrams { get; set; }
+
+    public decimal? lengthCm { get; set; }
+
+    public decimal? widthCm { get; set; }
+
+    public decimal? heightCm { get; set; }
+
+    public int? handlingDays { get; set; }
 }

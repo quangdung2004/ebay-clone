@@ -231,42 +231,6 @@ public sealed class OrderService : IOrderService
         return await GetByIdAsync(buyerId, orderId, ct);
     }
 
-    public async Task<OrderDetailDto> PayAsync(int buyerId, int orderId, CancellationToken ct)
-    {
-        var order = await _db.OrderTable
-            .Include(x => x.Payment)
-            .FirstOrDefaultAsync(x => x.id == orderId, ct);
-
-        if (order == null)
-            throw new NotFoundException("Order not found", "ORDER_NOT_FOUND");
-
-        if (order.buyerId != buyerId)
-            throw new ForbiddenException("You are not allowed to pay this order", "ORDER_FORBIDDEN");
-
-        if (string.Equals(order.status, OrderStatuses.Cancelled, StringComparison.OrdinalIgnoreCase))
-            throw new ValidationException("Cancelled order cannot be paid", "ORDER_ALREADY_CANCELLED");
-
-        if (order.addressId == null)
-            throw new ValidationException("Order must have a shipping address before payment", "ORDER_ADDRESS_REQUIRED");
-
-        var payment = order.Payment
-            .OrderByDescending(x => x.id)
-            .FirstOrDefault();
-
-        if (payment == null)
-            throw new NotFoundException("Payment record not found", "PAYMENT_NOT_FOUND");
-
-        if (string.Equals(payment.status, PaymentStatuses.Paid, StringComparison.OrdinalIgnoreCase))
-            return await GetByIdAsync(buyerId, orderId, ct);
-
-        payment.status = PaymentStatuses.Paid;
-        payment.paidAt = DateTime.UtcNow;
-        order.status = OrderStatuses.Paid;
-
-        await _db.SaveChangesAsync(ct);
-        return await GetByIdAsync(buyerId, orderId, ct);
-    }
-
     public async Task<OrderDetailDto> CancelAsync(int buyerId, int orderId, CancellationToken ct)
     {
         var order = await _db.OrderTable
@@ -330,7 +294,12 @@ public sealed class OrderService : IOrderService
         if (string.IsNullOrWhiteSpace(method))
             throw new ValidationException("Payment method is required", "PAYMENT_METHOD_REQUIRED");
 
-        return method.Trim().ToUpperInvariant();
+        var normalized = method.Trim().ToUpperInvariant();
+
+        if (normalized is not ("COD" or "PAYPAL"))
+            throw new ValidationException("Payment method must be COD or PAYPAL", "PAYMENT_METHOD_INVALID");
+
+        return normalized;
     }
 
     private static OrderSummaryDto MapSummary(OrderTable order)

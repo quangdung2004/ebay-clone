@@ -251,38 +251,11 @@ const CartPage = () => {
     try {
       setCheckingOut(true);
 
-      const payload = {
-        paymentMethod: DEFAULT_PAYMENT_METHOD,
-        addressId: selectedAddress.id,
-        items: selectedValidItems.map((item) => ({
-          productId: Number(item.productId),
-          quantity: Number(item.quantity),
-        })),
-      };
-
-      await checkoutOrder(payload);
-
-      selectedValidItems.forEach((item) => removeFromCart(item.productId));
-
-      showSuccess('Đặt hàng thành công.');
-      navigate('/orders');
+      // Just navigate to /checkout with items in state
+      navigate('/checkout', { state: { items: selectedValidItems } });
+      
     } catch (error) {
       const parsed = parseApiError(error, 'Checkout failed');
-
-      if (
-        parsed.code === 'ADDRESS_NOT_FOUND' ||
-        parsed.code === 'ADDRESS_REQUIRED'
-      ) {
-        navigate('/addresses?redirect=/cart');
-      }
-
-      if (
-        parsed.code === 'INSUFFICIENT_STOCK' ||
-        parsed.code === 'PRODUCT_NOT_AVAILABLE'
-      ) {
-        await loadCart();
-      }
-
       showError(parsed.message);
     } finally {
       setCheckingOut(false);

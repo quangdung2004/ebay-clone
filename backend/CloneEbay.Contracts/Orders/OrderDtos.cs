@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using CloneEbay.Contracts.Validation;
 
 namespace CloneEbay.Contracts.Orders;
@@ -13,7 +13,9 @@ public record OrderItemSummaryDto(
     decimal lineTotal,
     int? sellerId,
     string? sellerName
-);
+) {
+    public string currency { get; init; } = "USD";
+}
 
 public record PaymentSummaryDto(
     int id,
@@ -21,7 +23,9 @@ public record PaymentSummaryDto(
     string? method,
     string? status,
     DateTime? paidAt
-);
+) {
+    public string currency { get; init; } = "USD";
+}
 
 public record ShippingSummaryDto(
     int id,
@@ -53,7 +57,9 @@ public record OrderSummaryDto(
     int totalItems,
     IReadOnlyList<OrderItemSummaryDto> items,
     IReadOnlyList<PaymentSummaryDto> payments
-);
+) {
+    public string currency { get; init; } = "USD";
+}
 
 public record OrderDetailDto(
     int id,
@@ -66,7 +72,9 @@ public record OrderDetailDto(
     IReadOnlyList<OrderItemSummaryDto> items,
     IReadOnlyList<PaymentSummaryDto> payments,
     IReadOnlyList<ShippingSummaryDto> shippings
-);
+) {
+    public string currency { get; init; } = "USD";
+}
 
 public record CreateOrderItemRequest(
     [param: Range(1, int.MaxValue, ErrorMessage = ValidationMessages.PositiveNumber)]

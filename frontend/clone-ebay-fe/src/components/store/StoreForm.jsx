@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { parseApiError } from '../../utils/errorUtils';
 import { validateStore, hasErrors } from '../../utils/formValidation';
+import { normalizeProductImageUrl } from '../../utils/productUtils';
 import ErrorAlert from '../ui/ErrorAlert';
 import FormFieldError from '../ui/FormFieldError';
 import './StoreForm.css';
@@ -121,7 +122,7 @@ const StoreForm = ({ initialData = {}, onSubmit, submitLabel = 'Save', loading: 
                 {bannerImageURL.trim() && !fieldErrors.bannerImageURL ? (
                     <div className="banner-preview">
                         <img
-                            src={bannerImageURL}
+                            src={normalizeProductImageUrl(bannerImageURL)}
                             alt="Store banner preview"
                             onError={(e) => { e.target.style.display = 'none'; }}
                         />

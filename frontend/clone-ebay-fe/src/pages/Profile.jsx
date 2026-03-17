@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getMe } from '../api/authApi';
 import { parseApiError } from '../utils/errorUtils';
+import { normalizeProductImageUrl } from '../utils/productUtils';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import ErrorAlert from '../components/ui/ErrorAlert';
 import './Profile.css';
@@ -60,7 +61,7 @@ const Profile = () => {
                         <div className="profile-avatar-section">
                             {userData.avatarURL ? (
                                 <img
-                                    src={userData.avatarURL}
+                                    src={normalizeProductImageUrl(userData.avatarURL)}
                                     alt="Avatar"
                                     className="profile-avatar"
                                     onError={(e) => {

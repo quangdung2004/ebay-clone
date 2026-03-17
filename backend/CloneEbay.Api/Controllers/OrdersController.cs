@@ -1,6 +1,8 @@
 ﻿using CloneEbay.Application.Orders;
+using CloneEbay.Application.Payments;
 using CloneEbay.Contracts;
 using CloneEbay.Contracts.Orders;
+using CloneEbay.Contracts.Payments;
 using CloneEbay.Contracts.Products;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,10 +14,12 @@ namespace CloneEbay.Api.Controllers;
 public class OrdersController : BaseController
 {
     private readonly IOrderService _svc;
+    private readonly IPaymentService _paymentSvc;
 
-    public OrdersController(IOrderService svc)
+    public OrdersController(IOrderService svc, IPaymentService paymentSvc)
     {
         _svc = svc;
+        _paymentSvc = paymentSvc;
     }
 
     [HttpPost("checkout")]
@@ -38,8 +42,15 @@ public class OrdersController : BaseController
         => Success(await _svc.UpdateAddressAsync(CurrentUserId, id, req.addressId, ct), "Update order address successfully", "ORDER_ADDRESS_UPDATE_SUCCESS");
 
     [HttpPost("{id:int}/pay")]
-    public async Task<ApiResponse<OrderDetailDto>> Pay([FromRoute] int id, CancellationToken ct)
-        => Success(await _svc.PayAsync(CurrentUserId, id, ct), "Pay order successfully", "ORDER_PAY_SUCCESS");
+    public async Task<ApiResponse<CreatePayPalPaymentDto>> Pay([FromRoute] int id, CancellationToken ct)
+        => Success(await _paymentSvc.CreatePayPalOrderAsync(CurrentUserId, id, ct), "Create PayPal order successfully", "ORDER_PAYPAL_CREATE_SUCCESS");
+
+    [HttpPost("{id:int}/pay/capture")]
+    public async Task<ApiResponse<OrderDetailDto>> CapturePay(
+        [FromRoute] int id,
+        [FromBody] CapturePayPalPaymentRequest req,
+        CancellationToken ct)
+        => Success(await _paymentSvc.CapturePayPalOrderAsync(CurrentUserId, id, req.paypalOrderId, ct), "Pay order successfully", "ORDER_PAY_SUCCESS");
 
     [HttpPost("{id:int}/cancel")]
     public async Task<ApiResponse<OrderDetailDto>> Cancel([FromRoute] int id, CancellationToken ct)

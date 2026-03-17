@@ -18,7 +18,9 @@ import CreateStorePage from './pages/CreateStorePage';
 import MyStorePage from './pages/MyStorePage';
 import MyProductsPage from './pages/MyProductsPage';
 import EditProductPage from './pages/EditProductPage';
-import OrdersPage from './pages/OrdersPage';
+import MyOrdersPage from './pages/MyOrdersPage';
+import OrderDetailPage from './pages/OrderDetailPage';
+import CheckoutPage from './pages/CheckoutPage';
 import CartPage from './pages/CartPage';
 import AddressesPage from './pages/AddressesPage';
 import './App.css';
@@ -85,10 +87,26 @@ function App() {
                   }
                 />
                 <Route
+                  path="/checkout"
+                  element={
+                    <ProtectedRoute>
+                      <CheckoutPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
                   path="/orders"
                   element={
                     <ProtectedRoute>
-                      <OrdersPage />
+                      <MyOrdersPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/orders/:id"
+                  element={
+                    <ProtectedRoute>
+                      <OrderDetailPage />
                     </ProtectedRoute>
                   }
                 />

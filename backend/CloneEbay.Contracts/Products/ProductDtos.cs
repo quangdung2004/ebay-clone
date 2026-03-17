@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using CloneEbay.Contracts.Validation;
 
 namespace CloneEbay.Contracts.Products;
@@ -22,7 +22,9 @@ public record ProductListItemDto(
     bool isEnded,
     DateTime? auctionEndTime,
     int viewCount
-);
+) {
+    public string currency { get; init; } = "USD";
+}
 
 public record ProductDetailDto(
     int id,
@@ -45,7 +47,9 @@ public record ProductDetailDto(
     bool isEnded,
     string? timeLeft,
     int viewCount
-);
+) {
+    public string currency { get; init; } = "USD";
+}
 
 [UtcFutureDateIf(nameof(CreateProductRequest.isAuction), nameof(CreateProductRequest.auctionEndTime))]
 public record CreateProductRequest(
@@ -56,7 +60,7 @@ public record CreateProductRequest(
     [param: StringLength(2000, ErrorMessage = ValidationMessages.MaxLength)]
     string? description,
 
-    [param: Range(typeof(decimal), "0.01", "999999999", ErrorMessage = ValidationMessages.PositiveNumber)]
+    [param: Range(typeof(decimal), "0.01", "100000.00", ErrorMessage = ValidationMessages.PositiveNumber)]
     decimal price,
 
     [param: Range(1, int.MaxValue, ErrorMessage = ValidationMessages.PositiveNumber)]
@@ -83,7 +87,7 @@ public record UpdateProductRequest(
     [param: StringLength(2000, ErrorMessage = ValidationMessages.MaxLength)]
     string? description,
 
-    [param: Range(typeof(decimal), "0.01", "999999999", ErrorMessage = ValidationMessages.PositiveNumber)]
+    [param: Range(typeof(decimal), "0.01", "100000.00", ErrorMessage = ValidationMessages.PositiveNumber)]
     decimal price,
 
     [param: Range(1, int.MaxValue, ErrorMessage = ValidationMessages.PositiveNumber)]

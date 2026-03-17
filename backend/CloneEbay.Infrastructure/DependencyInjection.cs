@@ -20,6 +20,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
+using CloneEbay.Application.Payments;
+using CloneEbay.Infrastructure.Payments;
 
 namespace CloneEbay.Infrastructure;
 
@@ -89,6 +91,12 @@ public static class DependencyInjection
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IStoreService, StoreService>();
         services.AddScoped<IOrderService, OrderService>();
+        services.Configure<PayPalOptions>(configuration.GetSection("PayPal"));
+
+        services.AddHttpClient<IPaymentService, PaymentService>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
 
         // Realtime + messaging
         services.AddSingleton<AuctionRealtimeNotifier>();

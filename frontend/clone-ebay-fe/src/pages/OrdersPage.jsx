@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { cancelOrder, getMyOrders, payOrder } from '../api/orderApi';
+import { useNavigate } from 'react-router-dom';
+import { cancelOrder, getMyOrders } from '../api/orderApi';
 import { useToast } from '../components/Toast';
+import { normalizeProductImageUrl } from '../utils/productUtils';
 import './OrdersPage.css';
 
 const STATUS_LABELS = {
@@ -56,6 +58,7 @@ function getLatestPayment(payments = []) {
 }
 
 const OrdersPage = () => {
+  const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   const [activeTab, setActiveTab] = useState('ALL');
   const [loading, setLoading] = useState(true);
@@ -92,17 +95,8 @@ const OrdersPage = () => {
     };
   }, [orders]);
 
-  const handlePay = async (orderId) => {
-    try {
-      setActionLoadingId(orderId);
-      await payOrder(orderId);
-      showSuccess('Order paid successfully');
-      await fetchOrders();
-    } catch (error) {
-      showError(error.message || 'Failed to pay order');
-    } finally {
-      setActionLoadingId(null);
-    }
+  const handlePayClick = (orderId) => {
+    navigate(`/orders/${orderId}`);
   };
 
   const handleCancel = async (orderId) => {
@@ -215,7 +209,7 @@ const OrdersPage = () => {
                           <div className="order-item-image-wrap">
                             <img
                               src={
-                                item.thumbnailUrl ||
+                                normalizeProductImageUrl(item.thumbnailUrl) ||
                                 'https://placehold.co/96x96?text=No+Image'
                               }
                               alt={item.productTitle}
@@ -263,7 +257,7 @@ const OrdersPage = () => {
                         {canPay && (
                           <button
                             className="order-action primary"
-                            onClick={() => handlePay(order.id)}
+                            onClick={() => handlePayClick(order.id)}
                             disabled={actionLoadingId === order.id}
                           >
                             {actionLoadingId === order.id ? 'Processing...' : 'Pay now'}

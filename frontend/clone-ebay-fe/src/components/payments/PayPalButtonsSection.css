@@ -1,0 +1,51 @@
+.paypal-payment-section {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.paypal-payment-info {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px dashed #cbd5e1;
+}
+
+.paypal-title {
+  margin: 0 0 1rem 0;
+  font-size: 1.25rem;
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.paypal-details {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 1.1rem;
+  color: #475569;
+}
+
+.paypal-details strong {
+  color: #0f172a;
+  font-size: 1.25rem;
+  margin-left: 0.5rem;
+}
+
+.payment-method-badge {
+  background: #f1f5f9;
+  color: #334155;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.paypal-buttons-wrapper {
+  max-width: 500px;
+  margin: 0 auto;
+}

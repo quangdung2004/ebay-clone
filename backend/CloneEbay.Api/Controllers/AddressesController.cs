@@ -36,6 +36,8 @@ public class AddressesController : BaseController
                 x.city,
                 x.state,
                 x.country,
+                x.latitude,
+                x.longitude,
                 x.isDefault == true
             ))
             .ToListAsync(ct);
@@ -64,6 +66,8 @@ public class AddressesController : BaseController
             city = req.city.Trim(),
             state = req.state.Trim(),
             country = req.country.Trim(),
+            latitude = req.latitude,
+            longitude = req.longitude,
             isDefault = req.isDefault
         };
 
@@ -79,6 +83,8 @@ public class AddressesController : BaseController
                 entity.city,
                 entity.state,
                 entity.country,
+                entity.latitude,
+                entity.longitude,
                 entity.isDefault == true
             ),
             "Create address successfully",
@@ -108,6 +114,8 @@ public class AddressesController : BaseController
         entity.city = req.city.Trim();
         entity.state = req.state.Trim();
         entity.country = req.country.Trim();
+        entity.latitude = req.latitude;
+        entity.longitude = req.longitude;
         entity.isDefault = req.isDefault;
 
         await _db.SaveChangesAsync(ct);
@@ -121,6 +129,8 @@ public class AddressesController : BaseController
                 entity.city,
                 entity.state,
                 entity.country,
+                entity.latitude,
+                entity.longitude,
                 entity.isDefault == true
             ),
             "Update address successfully",

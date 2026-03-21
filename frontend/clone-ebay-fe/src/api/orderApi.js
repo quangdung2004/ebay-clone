@@ -43,3 +43,8 @@ export const checkoutOrder = async (payload) => {
   const response = await axiosInstance.post('/orders/checkout', payload);
   return response.data?.data;
 };
+
+export const getOrderTracking = async (id) => {
+  const response = await axiosInstance.get(`/orders/${id}/tracking`);
+  return response.data?.data;
+};

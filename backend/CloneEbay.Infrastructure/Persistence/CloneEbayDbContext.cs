@@ -33,8 +33,10 @@ public partial class CloneEbayDbContext : DbContext
     public virtual DbSet<ShippingInfo> ShippingInfo { get; set; }
     public virtual DbSet<Store> Store { get; set; }
     public virtual DbSet<User> User { get; set; }
+    public virtual DbSet<Shipment> Shipment { get; set; }
+    public virtual DbSet<ShipmentItem> ShipmentItem { get; set; }
+    public virtual DbSet<TrackingEvent> TrackingEvent { get; set; }
 
-    // ✅ NEW
     public virtual DbSet<RefreshToken> RefreshToken { get; set; }
     public virtual DbSet<UserToken> UserToken { get; set; }
 
@@ -58,6 +60,12 @@ public partial class CloneEbayDbContext : DbContext
             entity.Property(e => e.phone).HasMaxLength(20);
             entity.Property(e => e.state).HasMaxLength(50);
             entity.Property(e => e.street).HasMaxLength(100);
+
+            entity.Property(e => e.latitude)
+                .HasColumnType("decimal(10,7)");
+
+            entity.Property(e => e.longitude)
+                .HasColumnType("decimal(10,7)");
 
             entity.HasOne(d => d.user).WithMany(p => p.Address)
                 .HasForeignKey(d => d.userId)
@@ -177,6 +185,26 @@ public partial class CloneEbayDbContext : DbContext
             entity.Property(e => e.status).HasMaxLength(20);
             entity.Property(e => e.totalPrice).HasColumnType("decimal(10, 2)");
 
+            entity.Property(e => e.itemSubtotal)
+                .HasColumnType("decimal(10, 2)")
+                .HasColumnName("itemSubtotal");
+
+            entity.Property(e => e.shippingTotal)
+                .HasColumnType("decimal(10, 2)")
+                .HasColumnName("shippingTotal");
+
+            entity.Property(e => e.discountTotal)
+                .HasColumnType("decimal(10, 2)")
+                .HasColumnName("discountTotal");
+
+            entity.Property(e => e.taxTotal)
+                .HasColumnType("decimal(10, 2)")
+                .HasColumnName("taxTotal");
+
+            entity.Property(e => e.grandTotal)
+                .HasColumnType("decimal(10, 2)")
+                .HasColumnName("grandTotal");
+
             entity.HasOne(d => d.address).WithMany(p => p.OrderTable)
                 .HasForeignKey(d => d.addressId)
                 .HasConstraintName("FK__OrderTabl__addre__440B1D61");
@@ -212,6 +240,48 @@ public partial class CloneEbayDbContext : DbContext
             entity.Property(e => e.price).HasColumnType("decimal(10, 2)");
             entity.Property(e => e.title).HasMaxLength(255);
 
+            entity.Property(e => e.status)
+                .HasMaxLength(30)
+                .HasColumnName("status");
+
+            entity.Property(e => e.condition)
+                .HasMaxLength(30)
+                .HasColumnName("condition");
+
+            entity.Property(e => e.viewCount)
+                .HasColumnName("viewCount");
+
+            entity.Property(e => e.isDeleted)
+                .HasColumnName("isDeleted");
+
+            entity.Property(e => e.deletedAt)
+                .HasColumnType("datetime")
+                .HasColumnName("deletedAt");
+
+            entity.Property(e => e.weightGrams)
+                .HasColumnName("weightGrams");
+
+            entity.Property(e => e.lengthCm)
+                .HasColumnType("decimal(10, 2)")
+                .HasColumnName("lengthCm");
+
+            entity.Property(e => e.widthCm)
+                .HasColumnType("decimal(10, 2)")
+                .HasColumnName("widthCm");
+
+            entity.Property(e => e.heightCm)
+                .HasColumnType("decimal(10, 2)")
+                .HasColumnName("heightCm");
+
+            entity.Property(e => e.handlingDays)
+                .HasColumnName("handlingDays");
+
+            entity.Property(e => e.winnerUserId)
+                .HasColumnName("winnerUserId");
+
+            entity.Property(e => e.auctionOrderId)
+                .HasColumnName("auctionOrderId");
+
             entity.HasOne(d => d.category).WithMany(p => p.Product)
                 .HasForeignKey(d => d.categoryId)
                 .HasConstraintName("FK__Product__categor__3F466844");
@@ -219,6 +289,16 @@ public partial class CloneEbayDbContext : DbContext
             entity.HasOne(d => d.seller).WithMany(p => p.Product)
                 .HasForeignKey(d => d.sellerId)
                 .HasConstraintName("FK__Product__sellerI__403A8C7D");
+
+            entity.HasOne(d => d.winnerUser)
+                .WithMany()
+                .HasForeignKey(d => d.winnerUserId)
+                .HasConstraintName("FK_Product_WinnerUser");
+
+            entity.HasOne(d => d.auctionOrder)
+                .WithMany()
+                .HasForeignKey(d => d.auctionOrderId)
+                .HasConstraintName("FK_Product_AuctionOrder");
         });
 
         modelBuilder.Entity<ReturnRequest>(entity =>
@@ -277,7 +357,6 @@ public partial class CloneEbayDbContext : DbContext
                 .HasConstraintName("FK__Store__sellerId__6D0D32F4");
         });
 
-        // ✅ UPDATED: User mapping for new columns + ensure table name
         modelBuilder.Entity<User>(entity =>
         {
             entity.ToTable("User");
@@ -291,13 +370,11 @@ public partial class CloneEbayDbContext : DbContext
             entity.Property(e => e.role).HasMaxLength(20);
             entity.Property(e => e.username).HasMaxLength(100);
 
-            // new columns in User table
             entity.Property(e => e.emailVerified).HasColumnName("emailVerified");
             entity.Property(e => e.emailVerifiedAt).HasColumnType("datetime");
             entity.Property(e => e.passwordUpdatedAt).HasColumnType("datetime");
         });
 
-        // ✅ NEW: RefreshToken mapping
         modelBuilder.Entity<RefreshToken>(entity =>
         {
             entity.ToTable("RefreshToken");
@@ -333,7 +410,6 @@ public partial class CloneEbayDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // ✅ NEW: UserToken mapping
         modelBuilder.Entity<UserToken>(entity =>
         {
             entity.ToTable("UserToken");
@@ -361,41 +437,118 @@ public partial class CloneEbayDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<Product>(entity =>
+        modelBuilder.Entity<Shipment>(entity =>
         {
+            entity.HasKey(e => e.id);
+
+            entity.ToTable("Shipment");
+
+            entity.Property(e => e.shippingMethod)
+                .HasMaxLength(50);
+
+            entity.Property(e => e.carrier)
+                .HasMaxLength(100);
+
+            entity.Property(e => e.trackingNumber)
+                .HasMaxLength(100);
+
             entity.Property(e => e.status)
-                .HasMaxLength(30)
-                .HasColumnName("status");
+                .HasMaxLength(50);
 
-            entity.Property(e => e.condition)
-                .HasMaxLength(30)
-                .HasColumnName("condition");
+            entity.Property(e => e.shippingCost)
+                .HasColumnType("decimal(10, 2)");
 
-            entity.Property(e => e.viewCount)
-                .HasColumnName("viewCount");
+            entity.Property(e => e.currency)
+                .HasMaxLength(10);
 
-            entity.Property(e => e.isDeleted)
-                .HasColumnName("isDeleted");
+            entity.Property(e => e.estimatedShipDate)
+                .HasColumnType("datetime");
 
-            entity.Property(e => e.deletedAt)
-                .HasColumnType("datetime")
-                .HasColumnName("deletedAt");
+            entity.Property(e => e.estimatedDeliveryDate)
+                .HasColumnType("datetime");
 
-            entity.Property(e => e.winnerUserId)
-                .HasColumnName("winnerUserId");
+            entity.Property(e => e.shippedAt)
+                .HasColumnType("datetime");
 
-            entity.Property(e => e.auctionOrderId)
-                .HasColumnName("auctionOrderId");
+            entity.Property(e => e.deliveredAt)
+                .HasColumnType("datetime");
 
-            entity.HasOne(d => d.winnerUser)
+            entity.Property(e => e.createdAt)
+                .HasColumnType("datetime");
+
+            entity.HasOne(d => d.order)
+                .WithMany(p => p.Shipment)
+                .HasForeignKey(d => d.orderId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_Shipment_Order");
+
+            entity.HasOne(d => d.seller)
                 .WithMany()
-                .HasForeignKey(d => d.winnerUserId)
-                .HasConstraintName("FK_Product_WinnerUser");
+                .HasForeignKey(d => d.sellerId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_Shipment_Seller");
 
-            entity.HasOne(d => d.auctionOrder)
+            entity.HasOne(d => d.originAddress)
                 .WithMany()
-                .HasForeignKey(d => d.auctionOrderId)
-                .HasConstraintName("FK_Product_AuctionOrder");
+                .HasForeignKey(d => d.originAddressId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_Shipment_OriginAddress");
+
+            entity.HasOne(d => d.destinationAddress)
+                .WithMany()
+                .HasForeignKey(d => d.destinationAddressId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_Shipment_DestinationAddress");
+        });
+
+        modelBuilder.Entity<ShipmentItem>(entity =>
+        {
+            entity.HasKey(e => e.id);
+
+            entity.ToTable("ShipmentItem");
+
+            entity.HasOne(d => d.shipment)
+                .WithMany(p => p.ShipmentItem)
+                .HasForeignKey(d => d.shipmentId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_ShipmentItem_Shipment");
+
+            entity.HasOne(d => d.orderItem)
+                .WithMany()
+                .HasForeignKey(d => d.orderItemId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_ShipmentItem_OrderItem");
+        });
+
+        modelBuilder.Entity<TrackingEvent>(entity =>
+        {
+            entity.HasKey(e => e.id);
+
+            entity.ToTable("TrackingEvent");
+
+            entity.Property(e => e.statusCode)
+                .HasMaxLength(50);
+
+            entity.Property(e => e.description)
+                .HasMaxLength(255);
+
+            entity.Property(e => e.location)
+                .HasMaxLength(255);
+
+            entity.Property(e => e.latitude)
+                .HasColumnType("decimal(10,7)");
+
+            entity.Property(e => e.longitude)
+                .HasColumnType("decimal(10,7)");
+
+            entity.Property(e => e.eventTime)
+                .HasColumnType("datetime");
+
+            entity.HasOne(d => d.shipment)
+                .WithMany(p => p.TrackingEvent)
+                .HasForeignKey(d => d.shipmentId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_TrackingEvent_Shipment");
         });
 
         modelBuilder.Entity<SellerWallet>(entity =>

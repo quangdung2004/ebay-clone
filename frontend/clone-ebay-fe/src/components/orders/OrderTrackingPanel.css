@@ -1,0 +1,223 @@
+.tracking-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.tracking-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.tracking-title {
+  margin-bottom: 0.35rem;
+}
+
+.tracking-subtitle {
+  margin: 0;
+  color: #5f6b7a;
+}
+
+.tracking-shipment-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.tracking-tab {
+  border: 1px solid #cfd7e6;
+  background: #fff;
+  color: #23314d;
+  border-radius: 999px;
+  padding: 0.55rem 0.95rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.tracking-tab.active {
+  border-color: #3665f3;
+  background: #eef3ff;
+  color: #1437a3;
+}
+
+.tracking-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  background: #eef2f7;
+  color: #23314d;
+}
+
+.tracking-status-delivered {
+  background: #e7f7eb;
+  color: #1b7a36;
+}
+
+.tracking-status-out_for_delivery,
+.tracking-status-in_transit,
+.tracking-status-picked_up {
+  background: #e9f2ff;
+  color: #0d52c4;
+}
+
+.tracking-status-cancelled {
+  background: #fdecec;
+  color: #c12f2f;
+}
+
+.tracking-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.9rem;
+}
+
+.tracking-summary-card {
+  border: 1px solid #e6ebf2;
+  background: #fafcff;
+  border-radius: 12px;
+  padding: 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.tracking-summary-card.highlight {
+  background: #f5f8ff;
+  border-color: #c9d8ff;
+}
+
+.tracking-summary-label {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.tracking-map-wrapper {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid #dfe7f3;
+  min-height: 360px;
+  background: #f8fbff;
+}
+
+.tracking-map {
+  width: 100%;
+  min-height: 360px;
+}
+
+.tracking-map-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f6f8fc, #eef3ff);
+  color: #40516b;
+  padding: 1rem;
+  text-align: center;
+}
+
+.tracking-map-error,
+.tracking-panel-error {
+  color: #b42318;
+}
+
+.tracking-route-note {
+  color: #64748b;
+  font-size: 0.92rem;
+}
+
+.tracking-timeline h4 {
+  margin: 0 0 0.75rem;
+}
+
+.tracking-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.tracking-event-item {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+}
+
+.tracking-event-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #3665f3;
+  margin-top: 0.35rem;
+  flex-shrink: 0;
+}
+
+.tracking-event-content {
+  flex: 1;
+  border-left: 2px solid #d9e3ff;
+  padding-left: 0.9rem;
+  padding-bottom: 0.5rem;
+}
+
+.tracking-event-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.tracking-event-content p {
+  margin: 0 0 0.3rem;
+  color: #23314d;
+}
+
+.tracking-event-content small {
+  color: #64748b;
+}
+
+@media (max-width: 768px) {
+  .tracking-panel-header,
+  .tracking-event-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .tracking-map,
+  .tracking-map-wrapper {
+    min-height: 280px;
+  }
+}
+.tracking-map-fallback {
+  min-height: 360px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  text-align: center;
+  color: #40516b;
+  background: linear-gradient(135deg, #f6f8fc, #eef3ff);
+}
+
+.tracking-goong-marker {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.25);
+}
+
+.tracking-goong-marker-origin {
+  background: #2563eb;
+}
+
+.tracking-goong-marker-destination {
+  background: #dc2626;
+}

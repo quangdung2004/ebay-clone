@@ -24,8 +24,14 @@ public sealed class OrderService : IOrderService
     private static class PaymentStatuses
     {
         public const string Pending = "PENDING";
-        public const string Paid = "PAID";
+        public const string Captured = "CAPTURED";
         public const string Cancelled = "CANCELLED";
+    }
+
+    private static class PaymentMethods
+    {
+        public const string Cod = "COD";
+        public const string PayPal = "PAYPAL";
     }
 
     public OrderService(CloneEbayDbContext db)
@@ -38,38 +44,8 @@ public sealed class OrderService : IOrderService
         if (req.items == null || req.items.Count == 0)
             throw new ValidationException("Order must contain at least one item", "ORDER_ITEMS_REQUIRED");
 
-        Address? address;
-
-        if (req.addressId.HasValue)
-        {
-            address = await _db.Address
-                .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.id == req.addressId.Value && x.userId == buyerId, ct);
-        }
-        else
-        {
-            address = await _db.Address
-                .AsNoTracking()
-                .Where(x => x.userId == buyerId)
-                .OrderByDescending(x => x.isDefault == true)
-                .ThenBy(x => x.id)
-                .FirstOrDefaultAsync(ct);
-        }
-
-        if (address == null)
-            throw new NotFoundException("Address not found for current user", "ADDRESS_NOT_FOUND");
-
-        var productIds = req.items.Select(x => x.productId).Distinct().ToList();
-
-        if (productIds.Count != req.items.Count)
-            throw new ValidationException("Duplicate product in order is not allowed", "DUPLICATE_ORDER_ITEM");
-
-        var products = await _db.Product
-            .Where(x => productIds.Contains(x.id) && x.isDeleted != true)
-            .ToDictionaryAsync(x => x.id, ct);
-
-        if (products.Count != productIds.Count)
-            throw new NotFoundException("One or more products were not found", "PRODUCT_NOT_FOUND");
+        var address = await ResolveBuyerAddressAsync(buyerId, req.addressId, ct);
+        var products = await LoadProductsAsync(req, ct);
 
         var paymentMethod = NormalizePaymentMethod(req.paymentMethod);
         var now = DateTime.UtcNow;
@@ -83,30 +59,11 @@ public sealed class OrderService : IOrderService
         {
             var product = products[itemReq.productId];
 
-            if (product.sellerId == buyerId)
-                throw new ValidationException($"You cannot buy your own product: {product.title}", "ORDER_SELF_BUY_NOT_ALLOWED");
+            ValidateProductForCheckout(product, buyerId);
 
-            if (product.isAuction == true)
-                throw new ValidationException($"Auction product cannot be purchased via checkout: {product.title}", "AUCTION_CHECKOUT_NOT_ALLOWED");
+            await ReserveInventoryAsync(product, itemReq.quantity, ct);
 
-            if (!string.Equals(product.status, ProductStatuses.Active, StringComparison.OrdinalIgnoreCase))
-                throw new ValidationException($"Product is not available for checkout: {product.title}", "PRODUCT_NOT_AVAILABLE");
-
-            var reserved = await _db.Inventory
-                .Where(x => x.productId == product.id && (x.quantity ?? 0) >= itemReq.quantity)
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(x => x.quantity, x => (int?)((x.quantity ?? 0) - itemReq.quantity))
-                    .SetProperty(x => x.lastUpdated, _ => DateTime.UtcNow), ct);
-
-            if (reserved == 0)
-                throw new ValidationException($"Insufficient stock for product: {product.title}", "INSUFFICIENT_STOCK");
-
-            var remainingQuantity = await _db.Inventory
-                .AsNoTracking()
-                .Where(x => x.productId == product.id)
-                .Select(x => x.quantity ?? 0)
-                .FirstOrDefaultAsync(ct);
-
+            var remainingQuantity = await GetRemainingQuantityAsync(product.id, ct);
             product.status = remainingQuantity > 0
                 ? ProductStatuses.Active
                 : ProductStatuses.OutOfStock;
@@ -122,7 +79,7 @@ public sealed class OrderService : IOrderService
             buyerId = buyerId,
             addressId = address.id,
             orderDate = now,
-            status = paymentMethod == "COD"
+            status = paymentMethod == PaymentMethods.Cod
                 ? OrderStatuses.Confirmed
                 : OrderStatuses.PendingPayment,
             totalPrice = total
@@ -157,7 +114,6 @@ public sealed class OrderService : IOrderService
 
         return await GetByIdAsync(buyerId, order.id, ct);
     }
-
 
     public async Task<PagedResponse<OrderSummaryDto>> GetMyOrdersAsync(int buyerId, int page, int pageSize, CancellationToken ct)
     {
@@ -206,8 +162,7 @@ public sealed class OrderService : IOrderService
 
     public async Task<OrderDetailDto> UpdateAddressAsync(int buyerId, int orderId, int addressId, CancellationToken ct)
     {
-        var order = await _db.OrderTable
-            .FirstOrDefaultAsync(x => x.id == orderId, ct);
+        var order = await _db.OrderTable.FirstOrDefaultAsync(x => x.id == orderId, ct);
 
         if (order == null)
             throw new NotFoundException("Order not found", "ORDER_NOT_FOUND");
@@ -217,6 +172,9 @@ public sealed class OrderService : IOrderService
 
         if (string.Equals(order.status, OrderStatuses.Cancelled, StringComparison.OrdinalIgnoreCase))
             throw new ValidationException("Cancelled order cannot be updated", "ORDER_ALREADY_CANCELLED");
+
+        if (string.Equals(order.status, OrderStatuses.Paid, StringComparison.OrdinalIgnoreCase))
+            throw new ValidationException("Paid order cannot update address", "ORDER_ALREADY_PAID");
 
         var address = await _db.Address
             .AsNoTracking()
@@ -235,8 +193,8 @@ public sealed class OrderService : IOrderService
     {
         var order = await _db.OrderTable
             .Include(x => x.OrderItem)
-            .ThenInclude(x => x.product)
-            .ThenInclude(x => x!.Inventory)
+                .ThenInclude(x => x.product)
+                    .ThenInclude(x => x!.Inventory)
             .Include(x => x.Payment)
             .FirstOrDefaultAsync(x => x.id == orderId, ct);
 
@@ -289,6 +247,82 @@ public sealed class OrderService : IOrderService
         return await GetByIdAsync(buyerId, orderId, ct);
     }
 
+    private async Task<Address> ResolveBuyerAddressAsync(int buyerId, int? addressId, CancellationToken ct)
+    {
+        Address? address;
+
+        if (addressId.HasValue)
+        {
+            address = await _db.Address
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.id == addressId.Value && x.userId == buyerId, ct);
+        }
+        else
+        {
+            address = await _db.Address
+                .AsNoTracking()
+                .Where(x => x.userId == buyerId)
+                .OrderByDescending(x => x.isDefault == true)
+                .ThenBy(x => x.id)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        if (address == null)
+            throw new NotFoundException("Address not found for current user", "ADDRESS_NOT_FOUND");
+
+        return address;
+    }
+
+    private async Task<Dictionary<int, Product>> LoadProductsAsync(CreateOrderRequest req, CancellationToken ct)
+    {
+        var productIds = req.items!.Select(x => x.productId).Distinct().ToList();
+
+        if (productIds.Count != req.items.Count)
+            throw new ValidationException("Duplicate product in order is not allowed", "DUPLICATE_ORDER_ITEM");
+
+        var products = await _db.Product
+            .Where(x => productIds.Contains(x.id) && x.isDeleted != true)
+            .ToDictionaryAsync(x => x.id, ct);
+
+        if (products.Count != productIds.Count)
+            throw new NotFoundException("One or more products were not found", "PRODUCT_NOT_FOUND");
+
+        return products;
+    }
+
+    private static void ValidateProductForCheckout(Product product, int buyerId)
+    {
+        if (product.sellerId == buyerId)
+            throw new ValidationException($"You cannot buy your own product: {product.title}", "ORDER_SELF_BUY_NOT_ALLOWED");
+
+        if (product.isAuction == true)
+            throw new ValidationException($"Auction product cannot be purchased via checkout: {product.title}", "AUCTION_CHECKOUT_NOT_ALLOWED");
+
+        if (!string.Equals(product.status, ProductStatuses.Active, StringComparison.OrdinalIgnoreCase))
+            throw new ValidationException($"Product is not available for checkout: {product.title}", "PRODUCT_NOT_AVAILABLE");
+    }
+
+    private async Task ReserveInventoryAsync(Product product, int quantity, CancellationToken ct)
+    {
+        var reserved = await _db.Inventory
+            .Where(x => x.productId == product.id && (x.quantity ?? 0) >= quantity)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.quantity, x => (int?)((x.quantity ?? 0) - quantity))
+                .SetProperty(x => x.lastUpdated, _ => DateTime.UtcNow), ct);
+
+        if (reserved == 0)
+            throw new ValidationException($"Insufficient stock for product: {product.title}", "INSUFFICIENT_STOCK");
+    }
+
+    private async Task<int> GetRemainingQuantityAsync(int productId, CancellationToken ct)
+    {
+        return await _db.Inventory
+            .AsNoTracking()
+            .Where(x => x.productId == productId)
+            .Select(x => x.quantity ?? 0)
+            .FirstOrDefaultAsync(ct);
+    }
+
     private static string NormalizePaymentMethod(string? method)
     {
         if (string.IsNullOrWhiteSpace(method))
@@ -296,7 +330,7 @@ public sealed class OrderService : IOrderService
 
         var normalized = method.Trim().ToUpperInvariant();
 
-        if (normalized is not ("COD" or "PAYPAL"))
+        if (normalized is not (PaymentMethods.Cod or PaymentMethods.PayPal))
             throw new ValidationException("Payment method must be COD or PAYPAL", "PAYMENT_METHOD_INVALID");
 
         return normalized;
@@ -304,9 +338,6 @@ public sealed class OrderService : IOrderService
 
     private static OrderSummaryDto MapSummary(OrderTable order)
     {
-        var items = order.OrderItem.Select(MapItem).ToList();
-        var payments = order.Payment.Select(MapPayment).ToList();
-
         return new OrderSummaryDto(
             id: order.id,
             buyerId: order.buyerId,
@@ -316,8 +347,8 @@ public sealed class OrderService : IOrderService
             totalPrice: order.totalPrice ?? 0m,
             status: order.status,
             totalItems: order.OrderItem.Sum(x => x.quantity ?? 0),
-            items: items,
-            payments: payments
+            items: order.OrderItem.Select(MapItem).ToList(),
+            payments: order.Payment.Select(MapPayment).ToList()
         );
     }
 

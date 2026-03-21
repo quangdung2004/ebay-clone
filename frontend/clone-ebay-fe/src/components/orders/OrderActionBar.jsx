@@ -33,12 +33,12 @@ const OrderActionBar = ({ order, onOrderCancelled }) => {
 
   return (
     <div className="order-action-bar">
-       {order.status === 'PAID' && (
+       {(order.status === 'PAID' || latestPayment?.status === 'CAPTURED') && (
          <div className="order-message-success">
-           This order has been fully paid.
+           This order has been successfully paid.
          </div>
        )}
-       {order.status === 'CONFIRMED' && latestPayment.method === 'COD' && (
+       {order.status === 'CONFIRMED' && latestPayment?.method === 'COD' && (
          <div className="order-message-info">
            Method: {PAYMENT_METHOD_LABELS['COD']} - Please prepare cash for delivery.
          </div>

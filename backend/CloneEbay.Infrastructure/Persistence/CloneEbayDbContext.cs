@@ -38,6 +38,10 @@ public partial class CloneEbayDbContext : DbContext
     public virtual DbSet<RefreshToken> RefreshToken { get; set; }
     public virtual DbSet<UserToken> UserToken { get; set; }
 
+    public virtual DbSet<SellerWallet> SellerWallet { get; set; }
+    public virtual DbSet<SellerSettlement> SellerSettlement { get; set; }
+    public virtual DbSet<SellerTrustProfile> SellerTrustProfile { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
 #warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
         => optionsBuilder.UseSqlServer("Server=.;Database=CloneEbayDB;User Id=sa;Password=123;TrustServerCertificate=True;");
@@ -392,6 +396,74 @@ public partial class CloneEbayDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(d => d.auctionOrderId)
                 .HasConstraintName("FK_Product_AuctionOrder");
+        });
+
+        modelBuilder.Entity<SellerWallet>(entity =>
+        {
+            entity.ToTable("SellerWallet");
+
+            entity.HasKey(e => e.id);
+
+            entity.HasIndex(e => e.sellerId).IsUnique();
+
+            entity.Property(e => e.pendingBalance).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.availableBalance).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.totalEarned).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.createdAt).HasColumnType("datetime");
+            entity.Property(e => e.updatedAt).HasColumnType("datetime");
+
+            entity.HasOne(d => d.seller)
+                .WithOne(p => p.SellerWallet)
+                .HasForeignKey<SellerWallet>(d => d.sellerId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SellerTrustProfile>(entity =>
+        {
+            entity.ToTable("SellerTrustProfile");
+
+            entity.HasKey(e => e.id);
+
+            entity.HasIndex(e => e.sellerId).IsUnique();
+
+            entity.Property(e => e.createdAt).HasColumnType("datetime");
+            entity.Property(e => e.updatedAt).HasColumnType("datetime");
+
+            entity.HasOne(d => d.seller)
+                .WithOne(p => p.SellerTrustProfile)
+                .HasForeignKey<SellerTrustProfile>(d => d.sellerId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SellerSettlement>(entity =>
+        {
+            entity.ToTable("SellerSettlement");
+
+            entity.HasKey(e => e.id);
+
+            entity.Property(e => e.grossAmount).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.platformFee).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.netAmount).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.status).HasMaxLength(30);
+            entity.Property(e => e.holdReason).HasMaxLength(100);
+            entity.Property(e => e.heldAt).HasColumnType("datetime");
+            entity.Property(e => e.availableAt).HasColumnType("datetime");
+            entity.Property(e => e.releasedAt).HasColumnType("datetime");
+
+            entity.HasOne(d => d.order)
+                .WithMany(p => p.SellerSettlement)
+                .HasForeignKey(d => d.orderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(d => d.orderItem)
+                .WithMany(p => p.SellerSettlement)
+                .HasForeignKey(d => d.orderItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(d => d.seller)
+                .WithMany(p => p.SellerSettlement)
+                .HasForeignKey(d => d.sellerId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         OnModelCreatingPartial(modelBuilder);

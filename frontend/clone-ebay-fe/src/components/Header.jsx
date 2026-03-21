@@ -58,6 +58,9 @@ const Header = () => {
                             <Link to="/stores/me" className="header-link">
                                 My Store
                             </Link>
+                            <Link to="/seller/wallet" className="header-link">
+                                Wallet
+                            </Link>
 
                             {user && (
                                 <span className="header-user">

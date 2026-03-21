@@ -23,6 +23,7 @@ import OrderDetailPage from './pages/OrderDetailPage';
 import CheckoutPage from './pages/CheckoutPage';
 import CartPage from './pages/CartPage';
 import AddressesPage from './pages/AddressesPage';
+import SellerWalletPage from './pages/SellerWalletPage';
 import './App.css';
 
 function App() {
@@ -83,6 +84,14 @@ function App() {
                   element={
                     <ProtectedRoute>
                       <MyStorePage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/seller/wallet"
+                  element={
+                    <ProtectedRoute>
+                      <SellerWalletPage />
                     </ProtectedRoute>
                   }
                 />

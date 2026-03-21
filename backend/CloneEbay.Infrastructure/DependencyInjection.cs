@@ -97,6 +97,9 @@ public static class DependencyInjection
         {
             client.Timeout = TimeSpan.FromSeconds(30);
         });
+        services.AddScoped<ISellerHoldPolicyService, SellerHoldPolicyService>();
+        services.AddHostedService<SettlementReleaseBackgroundService>();
+        services.AddScoped<ISellerWalletService, SellerWalletService>();
 
         // Realtime + messaging
         services.AddSingleton<AuctionRealtimeNotifier>();

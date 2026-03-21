@@ -338,3 +338,92 @@
 .btn-order-cancel:hover:not(:disabled) {
   background: #f8d7da;
 }
+.order-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0;
+  color: #333;
+}
+
+.order-summary-row-total {
+  margin-top: 0.5rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid #eee;
+  font-size: 1.05rem;
+}
+
+.shipping-info-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+
+.shipping-info-status {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #004085;
+  background: #e9f2ff;
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+}
+
+.order-section-header-inline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.order-section-title-no-border {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.btn-order-address-edit,
+.btn-order-address-save {
+  background: #3665f3;
+  color: #fff;
+  border: none;
+  padding: 0.65rem 1rem;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-order-address-edit:disabled,
+.btn-order-address-save:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.order-address-note,
+.order-address-meta {
+  margin: 0.85rem 0 0;
+  font-size: 0.92rem;
+  color: #666;
+}
+
+.order-address-meta {
+  color: #155724;
+  font-weight: 600;
+}
+
+.order-address-select {
+  width: 100%;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 0.8rem 0.9rem;
+  font-size: 0.95rem;
+  background: #fff;
+}
+
+.order-address-actions {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+}

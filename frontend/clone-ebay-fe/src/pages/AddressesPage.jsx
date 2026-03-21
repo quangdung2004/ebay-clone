@@ -7,6 +7,7 @@ import {
   getSelectedShippingAddressId,
   setSelectedShippingAddressId,
 } from '../utils/checkoutAddress';
+import { formatCoordinates } from '../utils/shippingMap';
 import './AddressesPage.css';
 
 const emptyForm = {
@@ -16,6 +17,8 @@ const emptyForm = {
   city: '',
   state: '',
   country: 'Vietnam',
+  latitude: '',
+  longitude: '',
   isDefault: true,
 };
 
@@ -60,18 +63,41 @@ const AddressesPage = () => {
     loadAddresses();
   }, []);
 
-  const onSubmit = async (e) => {
-    e.preventDefault();
+const toNullableNumber = (value) => {
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+
+  const parsed = Number(text);
+  return Number.isNaN(parsed) ? NaN : parsed;
+};
+
+const onSubmit = async (e) => {
+  e.preventDefault();
+
+  const latitude = toNullableNumber(form.latitude);
+  const longitude = toNullableNumber(form.longitude);
+
+  if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
+    showError('Invalid latitude/longitude.');
+    return;
+  }
+
+  const payload = {
+    ...form,
+    latitude,
+    longitude,
+  };
+
     try {
       setSaving(true);
 
       let savedAddress;
 
       if (editingId) {
-        savedAddress = await updateAddress(editingId, form);
+        savedAddress = await updateAddress(editingId, payload);
         showSuccess('Address updated successfully.');
       } else {
-        savedAddress = await createAddress(form);
+        savedAddress = await createAddress(payload);
         showSuccess('Address created successfully.');
       }
 
@@ -80,6 +106,8 @@ const AddressesPage = () => {
         setSelectedShippingAddressId(savedAddress.id);
       }
 
+      setEditingId(null);
+      setForm(emptyForm);
       await loadAddresses();
     } catch (error) {
       showError(parseApiError(error, 'Failed to save address').message);
@@ -115,7 +143,7 @@ const AddressesPage = () => {
       <div className="address-layout">
         <section className="address-list-card">
           <div className="address-header">
-            <h1>Địa chỉ của bạn</h1>
+            <h1>Your addresses</h1>
             <button
               className="address-add-btn"
               onClick={() => {
@@ -123,13 +151,13 @@ const AddressesPage = () => {
                 setForm(emptyForm);
               }}
             >
-              + Thêm địa chỉ
+              + Add address
             </button>
           </div>
 
           {!addresses.length ? (
             <p className="address-empty">
-              Bạn chưa có địa chỉ nào. Hãy tạo địa chỉ để đặt hàng.
+              You do not have any addresses yet. Create one to place an order.
             </p>
           ) : (
             <>
@@ -146,7 +174,7 @@ const AddressesPage = () => {
                         checked={selectedAddressId === item.id}
                         onChange={() => handleSelectAddress(item.id)}
                       />
-                      <span>Chọn làm địa chỉ giao hàng</span>
+                      <span>Select as shipping address</span>
                     </label>
 
                     <button
@@ -161,22 +189,30 @@ const AddressesPage = () => {
                           city: item.city || '',
                           state: item.state || '',
                           country: item.country || 'Vietnam',
+                          latitude: item.latitude ?? '',
+                          longitude: item.longitude ?? '',
                           isDefault: !!item.isDefault,
                         });
                       }}
                     >
-                      Chỉnh sửa
+                      Edit
                     </button>
                   </div>
 
                   <div className="address-name-row">
                     <strong>{item.fullName}</strong>
-                    {item.isDefault && <span className="address-badge">Mặc định</span>}
+                    {item.isDefault && <span className="address-badge">Default</span>}
                   </div>
 
                   <div>{item.phone}</div>
                   <div>{item.street}</div>
                   <div>{item.state}, {item.city}, {item.country}</div>
+                  <div>
+                    Coordinates:{' '}
+                    {(item.latitude != null && item.longitude != null)
+                      ? formatCoordinates(item.latitude, item.longitude)
+                      : '--'}
+                  </div>
                 </div>
               ))}
 
@@ -185,19 +221,19 @@ const AddressesPage = () => {
                 className="address-use-btn"
                 onClick={handleUseSelectedAddress}
               >
-                Dùng địa chỉ đã chọn
+                Use selected address
               </button>
             </>
           )}
         </section>
 
         <section className="address-form-card">
-          <h2>{editingId ? 'Chỉnh sửa địa chỉ' : 'Thêm địa chỉ'}</h2>
+          <h2>{editingId ? 'Edit address' : 'Add address'}</h2>
 
           <form onSubmit={onSubmit} className="address-form">
             <input
               value={form.fullName}
-              placeholder="Họ và tên"
+              placeholder="Full name"
               onChange={(e) => setForm((prev) => ({ ...prev, fullName: e.target.value }))}
               className="address-input"
               required
@@ -205,7 +241,7 @@ const AddressesPage = () => {
 
             <input
               value={form.phone}
-              placeholder="Số điện thoại"
+              placeholder="Phone number"
               onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))}
               className="address-input"
               required
@@ -213,7 +249,7 @@ const AddressesPage = () => {
 
             <input
               value={form.street}
-              placeholder="Số nhà, đường"
+              placeholder="Street address"
               onChange={(e) => setForm((prev) => ({ ...prev, street: e.target.value }))}
               className="address-input"
               required
@@ -221,7 +257,7 @@ const AddressesPage = () => {
 
             <input
               value={form.city}
-              placeholder="Thành phố / Quận huyện"
+              placeholder="City / District"
               onChange={(e) => setForm((prev) => ({ ...prev, city: e.target.value }))}
               className="address-input"
               required
@@ -229,7 +265,7 @@ const AddressesPage = () => {
 
             <input
               value={form.state}
-              placeholder="Tỉnh / Bang"
+              placeholder="State / Province"
               onChange={(e) => setForm((prev) => ({ ...prev, state: e.target.value }))}
               className="address-input"
               required
@@ -237,10 +273,29 @@ const AddressesPage = () => {
 
             <input
               value={form.country}
-              placeholder="Quốc gia"
+              placeholder="Country"
               onChange={(e) => setForm((prev) => ({ ...prev, country: e.target.value }))}
               className="address-input"
               required
+            />
+
+            <input
+              type="number"
+              step="0.0000001"
+              value={form.latitude}
+              placeholder="Latitude (e.g. 10.776889) Optional"
+              onChange={(e) => setForm((prev) => ({ ...prev, latitude: e.target.value }))}
+              className="address-input"
+            />
+
+            <input
+              type="number"
+              step="0.0000001"
+              value={form.longitude}
+              placeholder="Longitude (e.g. 106.700806) Optional"
+              onChange={(e) => setForm((prev) => ({ ...prev, longitude: e.target.value }))}
+              className="address-input"
+
             />
 
             <label className="address-checkbox">
@@ -249,11 +304,11 @@ const AddressesPage = () => {
                 checked={!!form.isDefault}
                 onChange={(e) => setForm((prev) => ({ ...prev, isDefault: e.target.checked }))}
               />
-              Đặt làm địa chỉ mặc định
+              Set as default address
             </label>
 
             <button className="address-save-btn" type="submit" disabled={saving}>
-              {saving ? 'Đang lưu...' : editingId ? 'Cập nhật địa chỉ' : 'Tạo địa chỉ'}
+              {saving ? 'Saving...' : editingId ? 'Update address' : 'Create address'}
             </button>
           </form>
         </section>

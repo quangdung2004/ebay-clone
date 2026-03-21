@@ -35,6 +35,18 @@ public sealed class PaymentService : IPaymentService
         public const string Cancelled = "CANCELLED";
     }
 
+    private static class ShipmentStatuses
+    {
+        public const string Pending = "PENDING";
+        public const string PickedUp = "PICKED_UP";
+        public const string InTransit = "IN_TRANSIT";
+        public const string OutForDelivery = "OUT_FOR_DELIVERY";
+        public const string Delivered = "DELIVERED";
+        public const string Cancelled = "CANCELLED";
+    }
+
+    private const int DefaultSimulationMinutes = 180;
+
     public PaymentService(
         CloneEbayDbContext db,
         HttpClient http,
@@ -147,13 +159,14 @@ public sealed class PaymentService : IPaymentService
     {
         if (string.IsNullOrWhiteSpace(paypalOrderId))
             throw new ValidationException("paypalOrderId is required", "PAYPAL_ORDER_ID_REQUIRED");
-
         var order = await _db.OrderTable
             .Include(x => x.buyer)
             .Include(x => x.address)
             .Include(x => x.OrderItem).ThenInclude(x => x.product).ThenInclude(x => x!.seller)
             .Include(x => x.Payment)
             .Include(x => x.ShippingInfo)
+            .Include(x => x.Shipment)
+                .ThenInclude(x => x.TrackingEvent)
             .FirstOrDefaultAsync(x => x.id == orderId, ct);
 
         if (order == null)
@@ -207,9 +220,13 @@ public sealed class PaymentService : IPaymentService
             throw new ValidationException("PayPal payment was not completed", "PAYPAL_PAYMENT_NOT_COMPLETED");
         }
 
+        var paidAt = DateTime.UtcNow;
+
         payment.status = PaymentStatuses.Paid;
-        payment.paidAt = DateTime.UtcNow;
+        payment.paidAt = paidAt;
         order.status = OrderStatuses.Paid;
+
+        InitializeShipmentSimulation(order, paidAt);
 
         await _db.SaveChangesAsync(ct);
 
@@ -250,6 +267,11 @@ public sealed class PaymentService : IPaymentService
             buyerId: order.buyerId,
             buyerName: order.buyer?.username,
             orderDate: order.orderDate,
+            itemSubtotal: order.itemSubtotal ?? 0m,
+            shippingTotal: order.shippingTotal ?? 0m,
+            discountTotal: order.discountTotal ?? 0m,
+            taxTotal: order.taxTotal ?? 0m,
+            grandTotal: order.grandTotal ?? (order.totalPrice ?? 0m),
             totalPrice: order.totalPrice ?? 0m,
             status: order.status,
             address: order.address == null ? null : new AddressSummaryDto(
@@ -260,17 +282,48 @@ public sealed class PaymentService : IPaymentService
                 order.address.city,
                 order.address.state,
                 order.address.country,
-                order.address.isDefault),
-            items: order.OrderItem.Select(MapItem).ToList(),
-            payments: order.Payment.Select(MapPayment).ToList(),
-            shippings: order.ShippingInfo.Select(x => new ShippingSummaryDto(
+                order.address.latitude,
+                order.address.longitude,
+                order.address.isDefault
+            ),
+            canUpdateAddress: false,
+            addressChangeCount: 0,
+            remainingAddressChanges: 0,
+            items: order.OrderItem.Select(x => new OrderItemSummaryDto(
                 x.id,
+                x.productId,
+                x.product?.title ?? "Unknown product",
+                null,
+                x.quantity ?? 0,
+                x.unitPrice ?? 0m,
+                (x.unitPrice ?? 0m) * (x.quantity ?? 0),
+                x.product?.sellerId,
+                x.product?.seller?.username
+            )).ToList(),
+            payments: order.Payment.Select(x => new PaymentSummaryDto(
+                x.id,
+                x.amount ?? 0m,
+                x.method,
+                x.status,
+                x.paidAt
+            )).ToList(),
+            shipments: order.Shipment.Select(x => new ShipmentSummaryDto(
+                x.id,
+                x.sellerId,
+                x.shippingMethod,
                 x.carrier,
                 x.trackingNumber,
                 x.status,
-                x.estimatedArrival)).ToList()
+                x.shippingCost ?? 0m,
+                x.currency,
+                x.estimatedShipDate,
+                x.estimatedDeliveryDate,
+                x.shippedAt,
+                x.deliveredAt
+            )).ToList()
         );
     }
+    
 
     private static OrderItemSummaryDto MapItem(OrderItem item)
     {
@@ -298,5 +351,47 @@ public sealed class PaymentService : IPaymentService
             status: payment.status,
             paidAt: payment.paidAt
         );
+    }
+    private static void InitializeShipmentSimulation(OrderTable order, DateTime paidAtUtc)
+    {
+        if (order.Shipment == null || order.Shipment.Count == 0)
+            return;
+
+        foreach (var shipment in order.Shipment)
+        {
+            if (string.Equals(shipment.status, ShipmentStatuses.Cancelled, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (string.Equals(shipment.status, ShipmentStatuses.Delivered, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            shipment.shippedAt = paidAtUtc;
+            shipment.estimatedShipDate = paidAtUtc;
+            shipment.estimatedDeliveryDate = paidAtUtc.AddMinutes(DefaultSimulationMinutes);
+
+            if (string.IsNullOrWhiteSpace(shipment.trackingNumber))
+            {
+                shipment.trackingNumber = $"CEB-{paidAtUtc:yyyyMMdd}-{shipment.id:D6}";
+            }
+
+            var hasPickedUpEvent = shipment.TrackingEvent.Any(x =>
+                string.Equals(x.statusCode, ShipmentStatuses.PickedUp, StringComparison.OrdinalIgnoreCase));
+
+            if (!hasPickedUpEvent)
+            {
+                shipment.status = ShipmentStatuses.PickedUp;
+
+                shipment.TrackingEvent.Add(new TrackingEvent
+                {
+                    shipmentId = shipment.id,
+                    statusCode = ShipmentStatuses.PickedUp,
+                    description = "Carrier picked up the package",
+                    location = "Kho xuất phát",
+                    latitude = null,
+                    longitude = null,
+                    eventTime = paidAtUtc
+                });
+            }
+        }
     }
 }

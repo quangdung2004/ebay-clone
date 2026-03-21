@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { PayPalScriptProvider, PayPalButtons } from '@paypal/react-paypal-js';
 import { createPayPalOrder, capturePayPalOrder } from '../../api/orderApi';
 import { useToast } from '../Toast';
@@ -16,11 +15,12 @@ const PayPalButtonsSection = ({ order, onPaymentSuccess }) => {
 
   if (latestPayment?.method !== 'PAYPAL') return null;
 
+  const amountDue = Number(latestPayment?.amount || order.grandTotal || order.totalPrice || 0);
+
   const initialOptions = {
-    // using VITE_ prefix for Vite environment variables
-    "client-id": import.meta.env.VITE_PAYPAL_CLIENT_ID || "test",
-    currency: "USD",
-    intent: "capture",
+    'client-id': import.meta.env.VITE_PAYPAL_CLIENT_ID || 'test',
+    currency: 'USD',
+    intent: 'capture',
   };
 
   const createOrder = async () => {
@@ -32,11 +32,10 @@ const PayPalButtonsSection = ({ order, onPaymentSuccess }) => {
       return data.paypalOrderId;
     } catch (error) {
       showError(error.message || 'Failed to initialize PayPal order.');
-      // Returning null implicitly cancels the PayPal button flow
     }
   };
 
-  const onApprove = async (data, actions) => {
+  const onApprove = async (data) => {
     try {
       await capturePayPalOrder(order.id, data.orderID);
       showSuccess('Payment captured successfully!');
@@ -58,14 +57,14 @@ const PayPalButtonsSection = ({ order, onPaymentSuccess }) => {
       <div className="paypal-payment-info">
         <h4 className="paypal-title">Complete your payment securely</h4>
         <div className="paypal-details">
-          <span>Amount due: <strong>{formatCurrency(latestPayment.amount || order.totalPrice)}</strong></span>
+          <span>Amount due: <strong>{formatCurrency(amountDue)}</strong></span>
           <span className="payment-method-badge">PayPal</span>
         </div>
       </div>
       <div className="paypal-buttons-wrapper">
         <PayPalScriptProvider options={initialOptions}>
           <PayPalButtons
-            style={{ layout: "vertical", color: "gold", shape: "rect", label: "pay" }}
+            style={{ layout: 'vertical', color: 'gold', shape: 'rect', label: 'pay' }}
             createOrder={createOrder}
             onApprove={onApprove}
             onError={onError}

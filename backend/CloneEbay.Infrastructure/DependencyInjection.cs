@@ -16,6 +16,8 @@ using CloneEbay.Infrastructure.Persistence;
 using CloneEbay.Infrastructure.Products;
 using CloneEbay.Infrastructure.Products.Mapping;
 using CloneEbay.Infrastructure.Stores;
+using CloneEbay.Application.Shipping;
+using CloneEbay.Infrastructure.Shipping;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -91,6 +93,7 @@ public static class DependencyInjection
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IStoreService, StoreService>();
         services.AddScoped<IOrderService, OrderService>();
+        services.AddScoped<IShippingService, ShippingService>();
         services.Configure<PayPalOptions>(configuration.GetSection("PayPal"));
 
         services.AddHttpClient<IPaymentService, PaymentService>(client =>

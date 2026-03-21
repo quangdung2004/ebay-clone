@@ -21,6 +21,9 @@ public class OrdersController : BaseController
         _svc = svc;
         _paymentSvc = paymentSvc;
     }
+    [HttpPost("quote")]
+    public async Task<ApiResponse<QuoteOrderDto>> Quote([FromBody] QuoteOrderRequest req, CancellationToken ct)
+    => Success(await _svc.QuoteAsync(CurrentUserId, req, ct), "Get order quote successfully", "ORDER_QUOTE_SUCCESS");
 
     [HttpPost("checkout")]
     public async Task<ApiResponse<OrderDetailDto>> Checkout([FromBody] CreateOrderRequest req, CancellationToken ct)
@@ -36,6 +39,10 @@ public class OrdersController : BaseController
     [HttpGet("{id:int}")]
     public async Task<ApiResponse<OrderDetailDto>> GetById([FromRoute] int id, CancellationToken ct)
         => Success(await _svc.GetByIdAsync(CurrentUserId, id, ct), "Get order successfully", "ORDER_DETAIL_SUCCESS");
+
+    [HttpGet("{id:int}/tracking")]
+    public async Task<ApiResponse<OrderTrackingDto>> GetTracking([FromRoute] int id, CancellationToken ct)
+        => Success(await _svc.GetTrackingAsync(CurrentUserId, id, ct), "Get order tracking successfully", "ORDER_TRACKING_SUCCESS");
 
     [HttpPut("{id:int}/address")]
     public async Task<ApiResponse<OrderDetailDto>> UpdateAddress([FromRoute] int id, [FromBody] UpdateOrderAddressRequest req, CancellationToken ct)
@@ -55,4 +62,11 @@ public class OrdersController : BaseController
     [HttpPost("{id:int}/cancel")]
     public async Task<ApiResponse<OrderDetailDto>> Cancel([FromRoute] int id, CancellationToken ct)
         => Success(await _svc.CancelAsync(CurrentUserId, id, ct), "Cancel order successfully", "ORDER_CANCEL_SUCCESS");
+
+    [HttpPost("shipments/{shipmentId:int}/tracking")]
+    public async Task<ApiResponse<ShipmentTrackingDto>> UpdateShipmentTracking(
+        [FromRoute] int shipmentId,
+        [FromBody] UpdateShipmentTrackingRequest req,
+        CancellationToken ct)
+        => Success(await _svc.UpdateShipmentTrackingAsync(CurrentUserId, shipmentId, req, ct), "Update shipment tracking successfully", "SHIPMENT_TRACKING_UPDATE_SUCCESS");
 }

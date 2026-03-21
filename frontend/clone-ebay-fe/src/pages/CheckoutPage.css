@@ -244,3 +244,67 @@
   margin-top: 1rem;
   line-height: 1.4;
 }
+
+.checkout-distance-card {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid #dfe7f3;
+  background: linear-gradient(135deg, #fafcff, #f4f8ff);
+}
+
+.checkout-distance-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.checkout-distance-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.checkout-distance-header span {
+  color: #5f6b7a;
+  font-size: 0.9rem;
+}
+
+.checkout-distance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.85rem;
+}
+
+.checkout-distance-grid > div {
+  background: #fff;
+  border: 1px solid #e7edf7;
+  border-radius: 10px;
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.checkout-distance-label {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.checkout-distance-muted {
+  margin: 0;
+  color: #475467;
+}
+
+.checkout-distance-error {
+  margin: 0;
+  color: #b42318;
+}
+
+@media (max-width: 768px) {
+  .checkout-distance-header {
+    flex-direction: column;
+  }
+}
+

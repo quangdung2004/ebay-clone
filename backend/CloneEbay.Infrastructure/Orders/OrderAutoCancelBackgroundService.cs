@@ -57,6 +57,9 @@ public class OrderAutoCancelBackgroundService : BackgroundService
 
         var timedOutOrders = await db.OrderTable
             .Include(x => x.buyer)
+            .Include(x => x.OrderItem)
+                .ThenInclude(i => i.product)
+                    .ThenInclude(p => p!.Inventory)
             .Where(x => x.status == OrderStatuses.PendingPayment && x.orderDate < cutoffTime)
             .ToListAsync(ct);
 
@@ -68,6 +71,27 @@ public class OrderAutoCancelBackgroundService : BackgroundService
         {
             var oldStatus = order.status;
             order.status = OrderStatuses.Cancelled;
+
+            foreach (var item in order.OrderItem)
+            {
+                if (item.product == null) continue;
+
+                var inventory = item.product.Inventory.FirstOrDefault();
+                if (inventory == null)
+                {
+                    inventory = new Inventory
+                    {
+                        productId = item.product.id,
+                        quantity = 0,
+                        lastUpdated = DateTime.UtcNow
+                    };
+                    db.Inventory.Add(inventory);
+                }
+
+                inventory.quantity = (inventory.quantity ?? 0) + (item.quantity ?? 0);
+                inventory.lastUpdated = DateTime.UtcNow;
+                item.product.status = ProductStatuses.Active;
+            }
             
             _logger.LogInformation("Order #{OrderId} cancelled due to payment timeout.", order.id);
 

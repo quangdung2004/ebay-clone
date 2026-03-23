@@ -382,8 +382,18 @@ public sealed class PaymentService : IPaymentService
 
     private async Task CreateSellerSettlementsAsync(OrderTable order, CancellationToken ct)
     {
+        var totalItemsSubtotal = order.OrderItem.Sum(x => (x.unitPrice ?? 0m) * (x.quantity ?? 0));
+        var totalShipping = order.shippingFee ?? 0m;
+        var totalDiscount = order.discountAmount ?? 0m;
+
+        var itemsCount = order.OrderItem.Count;
+        var currentItemIndex = 0;
+        var distributedShipping = 0m;
+        var distributedDiscount = 0m;
+
         foreach (var item in order.OrderItem)
         {
+            currentItemIndex++;
             if (item.product?.sellerId == null)
                 continue;
 
@@ -395,7 +405,32 @@ public sealed class PaymentService : IPaymentService
                 continue;
 
             var sellerId = item.product.sellerId.Value;
-            var grossAmount = (item.unitPrice ?? 0m) * (item.quantity ?? 0);
+            var itemSubtotal = (item.unitPrice ?? 0m) * (item.quantity ?? 0);
+
+            decimal itemShippingShare;
+            decimal itemDiscountShare;
+
+            if (currentItemIndex == itemsCount)
+            {
+                itemShippingShare = totalShipping - distributedShipping;
+                itemDiscountShare = totalDiscount - distributedDiscount;
+            }
+            else if (totalItemsSubtotal > 0)
+            {
+                var ratio = itemSubtotal / totalItemsSubtotal;
+                itemShippingShare = Math.Round(totalShipping * ratio, 2, MidpointRounding.AwayFromZero);
+                itemDiscountShare = Math.Round(totalDiscount * ratio, 2, MidpointRounding.AwayFromZero);
+            }
+            else
+            {
+                itemShippingShare = 0;
+                itemDiscountShare = 0;
+            }
+
+            distributedShipping += itemShippingShare;
+            distributedDiscount += itemDiscountShare;
+
+            var grossAmount = itemSubtotal + itemShippingShare - itemDiscountShare;
             var platformFee = Math.Round(grossAmount * 0.05m, 2, MidpointRounding.AwayFromZero);
             var netAmount = grossAmount - platformFee;
 

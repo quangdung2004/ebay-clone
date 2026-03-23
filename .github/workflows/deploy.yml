@@ -1,0 +1,55 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Restore backend
+        run: dotnet restore backend/CloneEbay.sln
+
+      - name: Build backend
+        run: dotnet build backend/CloneEbay.sln --configuration Release --no-restore
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install frontend dependencies
+        working-directory: frontend/clone-ebay-fe
+        run: npm install
+
+      - name: Build frontend
+        working-directory: frontend/clone-ebay-fe
+        run: npm run build
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            set -e
+            cd /opt/ebay-clone
+            git fetch origin
+            git checkout main
+            git pull origin main
+            docker compose -f docker-compose.prod.yml up -d --build
+            docker image prune -f
+            docker ps

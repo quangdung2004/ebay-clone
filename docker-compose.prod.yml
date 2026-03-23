@@ -1,0 +1,123 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: ebay-frontend
+    restart: always
+    ports:
+      - "3000:80"
+    networks:
+      - ebay-net
+
+  backend-1:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: ebay-backend-1
+    restart: always
+    ports:
+      - "8081:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Frontend__BaseUrl: "http://159.89.195.148"
+      ConnectionStrings__MyCnn: "Server=sqlserver,1433;Database=CloneEbayDB;User Id=sa;Password=Dung@123456Strong!;TrustServerCertificate=True;"
+      Jwt__Issuer: "CloneEbay"
+      Jwt__Audience: "CloneEbayClient"
+      Jwt__Key: "super_secret_key_change_me_1234567890_very_long_key"
+      Email__Host: "mailhog"
+      Email__Port: "1025"
+      Email__From: "noreply@clone-ebay.com"
+      Redis__Connection: "redis:6379,password=nutrition"
+      RabbitMQ__HostName: "rabbitmq"
+      RabbitMQ__Port: "5672"
+      RabbitMQ__UserName: "guest"
+      RabbitMQ__Password: "guest"
+      PayPal__ClientId: "${PAYPAL_CLIENT_ID}"
+      PayPal__ClientSecret: "${PAYPAL_CLIENT_SECRET}"
+      PayPal__UseSandbox: "true"
+      SeventeenTrack__WebhookSecret: "${SEVENTEENTRACK_WEBHOOK_SECRET}"
+      SeventeenTrack__ApiKey: "${SEVENTEENTRACK_API_KEY}"
+    depends_on:
+      - sqlserver
+      - redis
+      - rabbitmq
+      - mailhog
+    networks:
+      - ebay-net
+
+  backend-2:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: ebay-backend-2
+    restart: always
+    ports:
+      - "8082:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Frontend__BaseUrl: "http://159.89.195.148"
+      ConnectionStrings__MyCnn: "Server=sqlserver,1433;Database=CloneEbayDB;User Id=sa;Password=Dung@123456Strong!;TrustServerCertificate=True;"
+      Jwt__Issuer: "CloneEbay"
+      Jwt__Audience: "CloneEbayClient"
+      Jwt__Key: "super_secret_key_change_me_1234567890_very_long_key"
+      Email__Host: "mailhog"
+      Email__Port: "1025"
+      Email__From: "noreply@clone-ebay.com"
+      Redis__Connection: "redis:6379,password=nutrition"
+      RabbitMQ__HostName: "rabbitmq"
+      RabbitMQ__Port: "5672"
+      RabbitMQ__UserName: "guest"
+      RabbitMQ__Password: "guest"
+      PayPal__ClientId: "${PAYPAL_CLIENT_ID}"
+      PayPal__ClientSecret: "${PAYPAL_CLIENT_SECRET}"
+      PayPal__UseSandbox: "true"
+      SeventeenTrack__WebhookSecret: "${SEVENTEENTRACK_WEBHOOK_SECRET}"
+      SeventeenTrack__ApiKey: "${SEVENTEENTRACK_API_KEY}"
+    depends_on:
+      - sqlserver
+      - redis
+      - rabbitmq
+      - mailhog
+    networks:
+      - ebay-net
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    restart: always
+    command: ["redis-server", "--requirepass", "nutrition"]
+    networks:
+      - ebay-net
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    restart: always
+    networks:
+      - ebay-net
+
+  mailhog:
+    image: mailhog/mailhog
+    container_name: mailhog
+    restart: always
+    networks:
+      - ebay-net
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sqlserver
+    restart: always
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "Dung@123456Strong!"
+    volumes:
+      - sql_data:/var/opt/mssql
+    networks:
+      - ebay-net
+
+networks:
+  ebay-net:
+
+volumes:
+  sql_data:

@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Threading.RateLimiting;
 using CloneEbay.Api.Middleware;
 using CloneEbay.Application;
@@ -27,6 +27,7 @@ builder.Logging.AddDebug();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+builder.Services.AddHealthChecks();
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -261,7 +262,10 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsProduction())
+{
+    app.UseHttpsRedirection();
+}
 app.UseRateLimiter();
 app.UseStaticFiles();
 
@@ -312,5 +316,7 @@ app.UseStatusCodePages(async context =>
         await response.WriteAsJsonAsync(payload);
     }
 });
+app.MapGet("/ping", () => Results.Ok(new { message = "pong" }));
+app.MapHealthChecks("/health");
 
 app.Run();

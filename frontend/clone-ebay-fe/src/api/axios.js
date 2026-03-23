@@ -12,16 +12,15 @@ export class ApiError extends Error {
 }
 
 // ---------- Axios Instance ----------
-// In dev, Vite proxy forwards /api/* to the backend, so baseURL is just '/api'.
-// In production, set VITE_API_BASE_URL to the full backend URL.
-const API_BASE = import.meta.env.VITE_API_BASE_URL
-    ? `${import.meta.env.VITE_API_BASE_URL}/api`
-    : '/api';
+// Dev: Vite proxy sẽ forward /api sang backend local
+// Production: Nginx trên VPS sẽ forward /api sang backend containers
+// => frontend chỉ cần gọi relative path /api
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 const axiosInstance = axios.create({
     baseURL: API_BASE,
     headers: { 'Content-Type': 'application/json' },
-    withCredentials: true, // send HttpOnly cookies cross-origin
+    withCredentials: true,
 });
 
 // ---------- Refresh state ----------
@@ -41,7 +40,15 @@ const processQueue = (error, token = null) => {
  * If these return 401 it means the credentials are wrong,
  * not that a token expired.
  */
-const AUTH_ROUTES = ['/auth/login', '/auth/register', '/auth/forgot-password', '/auth/reset-password', '/auth/verify-email', '/auth/logout', '/auth/refresh'];
+const AUTH_ROUTES = [
+    '/auth/login',
+    '/auth/register',
+    '/auth/forgot-password',
+    '/auth/reset-password',
+    '/auth/verify-email',
+    '/auth/logout',
+    '/auth/refresh',
+];
 
 function isAuthRoute(url) {
     if (!url) return false;
@@ -50,18 +57,12 @@ function isAuthRoute(url) {
 
 /**
  * Extract a user-friendly error message from any backend response body.
- * Supports:
- *  - Custom wrapper:    { success: false, message, code, correlationId }
- *  - ASP.NET ProblemDetails: { title, detail, status, traceId }
- *  - Validation errors:     { errors: { field: [...] } }
- *  - Simple object:         { error: "..." } or { message: "..." }
  */
 function extractBackendError(data, httpStatus) {
     if (!data || typeof data !== 'object') {
         return { message: null, code: null, correlationId: null };
     }
 
-    // --- Custom API wrapper (success: false) ---
     if (data.success === false) {
         return {
             message: data.message || null,
@@ -70,10 +71,9 @@ function extractBackendError(data, httpStatus) {
         };
     }
 
-    // --- ASP.NET ProblemDetails ---
     if (data.title || data.detail) {
         let message = data.detail || data.title;
-        // Attach validation errors if present
+
         if (data.errors && typeof data.errors === 'object') {
             const fieldErrors = Object.entries(data.errors)
                 .map(([field, msgs]) => {
@@ -81,10 +81,12 @@ function extractBackendError(data, httpStatus) {
                     return `${field}: ${list}`;
                 })
                 .join('; ');
+
             if (fieldErrors) {
                 message = message ? `${message} — ${fieldErrors}` : fieldErrors;
             }
         }
+
         return {
             message,
             code: data.type || null,
@@ -92,7 +94,6 @@ function extractBackendError(data, httpStatus) {
         };
     }
 
-    // --- Simple { message } or { error } ---
     const message = data.message || data.error || null;
     return {
         message,
@@ -116,7 +117,6 @@ axiosInstance.interceptors.request.use(
 // ---------- Response interceptor ----------
 axiosInstance.interceptors.response.use(
     (response) => {
-        // Backend may return 200 with success: false
         if (response.data && response.data.success === false) {
             const info = extractBackendError(response.data, response.status);
             throw new ApiError(
@@ -132,10 +132,7 @@ axiosInstance.interceptors.response.use(
         const originalRequest = error.config;
         const status = error.response?.status;
 
-        // --- 401 handling ---
         if (status === 401) {
-            // ★ Auth routes (login, register, etc.) should NEVER attempt refresh.
-            //   A 401 here means wrong credentials — surface the error directly.
             if (isAuthRoute(originalRequest?.url)) {
                 const info = extractBackendError(error.response?.data, status);
                 throw new ApiError(
@@ -146,7 +143,6 @@ axiosInstance.interceptors.response.use(
                 );
             }
 
-            // For non-auth routes: attempt token refresh (once)
             if (!originalRequest._retry) {
                 if (isRefreshing) {
                     return new Promise((resolve, reject) => {
@@ -182,10 +178,11 @@ axiosInstance.interceptors.response.use(
                 } catch (refreshError) {
                     processQueue(refreshError, null);
                     localStorage.removeItem('accessToken');
-                    // Redirect only if we're NOT already on the login page
+
                     if (!window.location.pathname.startsWith('/login')) {
                         window.location.href = '/login';
                     }
+
                     return Promise.reject(refreshError);
                 } finally {
                     isRefreshing = false;
@@ -193,7 +190,6 @@ axiosInstance.interceptors.response.use(
             }
         }
 
-        // --- Extract backend error payload for all other status codes ---
         if (error.response?.data) {
             const info = extractBackendError(error.response.data, status);
             if (info.message) {
@@ -206,7 +202,6 @@ axiosInstance.interceptors.response.use(
             }
         }
 
-        // --- Network / timeout / unknown errors ---
         throw new ApiError(
             error.message || 'Network error',
             null,

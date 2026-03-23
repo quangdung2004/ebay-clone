@@ -70,9 +70,9 @@ public sealed class ShippingService : IShippingService
                 "Estimated arrival cannot be in the past",
                 "SHIPMENT_ESTIMATED_ARRIVAL_IN_PAST");
 
-        if (estimatedArrivalUtc > now.AddDays(3))
+        if (estimatedArrivalUtc < now.AddDays(3))
             throw new ValidationException(
-                "Estimated arrival cannot be more than 3 days from now",
+                "Estimated arrival cannot be less than 3 days from now",
                 "SHIPMENT_ESTIMATED_ARRIVAL_EXCEEDS_3_DAYS");
 
         var order = await LoadOrderForSellerAsync(orderId, sellerId, ct);

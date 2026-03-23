@@ -185,8 +185,8 @@ const OrderActionBar = ({ order, isSeller, isBuyer, onOrderUpdated }) => {
                       const { applyMockShipmentStatus } = await import('../../api/sellerApi');
                       await applyMockShipmentStatus(order.id, {
                         status: 'IN_TRANSIT',
-                        description: 'Shipment departed from Los Angeles hub',
-                        location: 'Los Angeles, California, USA',
+                        description: 'Shipment departed from seller origin facility',
+                        location: 'Hanoi, Vietnam', // Mặc định ở HN hoặc có thể nhập tay
                         eventTime: new Date().toISOString()
                       });
                       showSuccess('Mock: In Transit set');
@@ -205,10 +205,15 @@ const OrderActionBar = ({ order, isSeller, isBuyer, onOrderUpdated }) => {
                     try {
                       setIsActionLoading(true);
                       const { applyMockShipmentStatus } = await import('../../api/sellerApi');
+                      
+                      const destCity = order.address?.city || 'Ho Chi Minh City';
+                      const destCountry = order.address?.country || 'Vietnam';
+                      const locationStr = `${destCity}, ${destCountry}`;
+
                       await applyMockShipmentStatus(order.id, {
                         status: 'OUT_FOR_DELIVERY',
-                        description: 'Package out for delivery in Chicago',
-                        location: 'Chicago, Illinois, USA',
+                        description: `Package arrived at destination hub: ${destCity}`,
+                        location: locationStr,
                         eventTime: new Date().toISOString()
                       });
                       showSuccess('Mock: Out for Delivery set');
@@ -227,10 +232,16 @@ const OrderActionBar = ({ order, isSeller, isBuyer, onOrderUpdated }) => {
                     try {
                       setIsActionLoading(true);
                       const { applyMockShipmentStatus } = await import('../../api/sellerApi');
+                      
+                      const destStreet = order.address?.street || 'Delivery Address';
+                      const destCity = order.address?.city || 'Ho Chi Minh City';
+                      const destCountry = order.address?.country || 'Vietnam';
+                      const locationStr = `${destStreet}, ${destCity}, ${destCountry}`;
+
                       await applyMockShipmentStatus(order.id, {
                         status: 'DELIVERED',
-                        description: 'Package delivered to recipient in New York',
-                        location: 'New York City, New York, USA',
+                        description: 'Package delivered to recipient',
+                        location: locationStr,
                         eventTime: new Date().toISOString()
                       });
                       showSuccess('Mock: Delivered set');

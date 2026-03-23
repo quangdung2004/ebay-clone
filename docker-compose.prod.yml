@@ -69,9 +69,11 @@ services:
       RabbitMQ__Port: "5672"
       RabbitMQ__UserName: "guest"
       RabbitMQ__Password: "guest"
-      PayPal__ClientId: "PAYPAL_CLIENT_ID"
-      PayPal__ClientSecret: "PAYPAL_CLIENT_SECRET"
+      PayPal__ClientId: "${PAYPAL_CLIENT_ID}"
+      PayPal__ClientSecret: "${PAYPAL_CLIENT_SECRET}"
       PayPal__UseSandbox: "true"
+      SeventeenTrack__WebhookSecret: "${SEVENTEENTRACK_WEBHOOK_SECRET}"
+      SeventeenTrack__ApiKey: "${SEVENTEENTRACK_API_KEY}"
     depends_on:
       - sqlserver
       - redis

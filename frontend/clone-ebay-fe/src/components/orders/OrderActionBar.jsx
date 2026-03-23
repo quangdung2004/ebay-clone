@@ -173,7 +173,7 @@ const OrderActionBar = ({ order, isSeller, isBuyer, onOrderUpdated }) => {
        )}
 
        {/* Simulate Delivery (Mock Status) Group for Seller / Tester */}
-       {import.meta.env.DEV && isSeller && String(order?.status).toUpperCase() === 'SHIPPED' && (
+       {(import.meta.env.DEV || import.meta.env.VITE_ENABLE_MOCKS === 'true') && isSeller && String(order?.status).toUpperCase() === 'SHIPPED' && (
          <div style={{ marginTop: '20px', padding: '15px', background: '#f0f4f8', border: '1px dashed #0053a0', borderRadius: '8px' }}>
             <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: '#0053a0' }}>🛠 DEV Simulation Console</h4>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>

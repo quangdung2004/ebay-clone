@@ -56,7 +56,7 @@ services:
       - "8082:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      Frontend__BaseUrl: "http://159.89.195.148"
+      Frontend__BaseUrl: "http://159.89.195.148:3000"
       ConnectionStrings__MyCnn: "Server=sqlserver,1433;Database=CloneEbayDB;User Id=sa;Password=Dung@123456Strong!;TrustServerCertificate=True;"
       Jwt__Issuer: "CloneEbay"
       Jwt__Audience: "CloneEbayClient"

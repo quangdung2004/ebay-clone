@@ -380,6 +380,8 @@ public sealed class OrderService : IOrderService
             throw new ValidationException("Duplicate product in order is not allowed", "DUPLICATE_ORDER_ITEM");
 
         var products = await _db.Product
+            .Include(x => x.seller)
+                .ThenInclude(x => x!.Address)
             .Where(x => productIds.Contains(x.id) && x.isDeleted != true)
             .ToDictionaryAsync(x => x.id, ct);
 
@@ -464,6 +466,8 @@ public sealed class OrderService : IOrderService
     {
         var orderItems = await _db.OrderItem
             .Include(x => x.product)
+                .ThenInclude(x => x!.seller)
+                    .ThenInclude(x => x!.Address)
             .Where(x => x.orderId == orderId)
             .ToListAsync(ct);
 

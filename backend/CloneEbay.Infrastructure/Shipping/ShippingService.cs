@@ -57,6 +57,24 @@ public sealed class ShippingService : IShippingService
         if (string.IsNullOrWhiteSpace(req.trackingNumber))
             throw new ValidationException("Tracking number is required", "SHIPMENT_TRACKING_REQUIRED");
 
+        if (!req.estimatedArrival.HasValue)
+            throw new ValidationException("Estimated arrival is required", "SHIPMENT_ESTIMATED_ARRIVAL_REQUIRED");
+
+        var now = DateTime.UtcNow;
+        var estimatedArrivalUtc = req.estimatedArrival.Value.Kind == DateTimeKind.Utc
+            ? req.estimatedArrival.Value
+            : req.estimatedArrival.Value.ToUniversalTime();
+
+        if (estimatedArrivalUtc < now)
+            throw new ValidationException(
+                "Estimated arrival cannot be in the past",
+                "SHIPMENT_ESTIMATED_ARRIVAL_IN_PAST");
+
+        if (estimatedArrivalUtc > now.AddDays(3))
+            throw new ValidationException(
+                "Estimated arrival cannot be more than 3 days from now",
+                "SHIPMENT_ESTIMATED_ARRIVAL_EXCEEDS_3_DAYS");
+
         var order = await LoadOrderForSellerAsync(orderId, sellerId, ct);
 
         if (!string.Equals(order.status, OrderStatuses.Paid, StringComparison.OrdinalIgnoreCase) &&
@@ -64,8 +82,6 @@ public sealed class ShippingService : IShippingService
         {
             throw new ValidationException("Only paid or processing order can be shipped", "ORDER_INVALID_STATUS");
         }
-
-        var now = DateTime.UtcNow;
 
         var shipping = await _db.ShippingInfo
             .FirstOrDefaultAsync(x => x.orderId == orderId, ct);
@@ -84,8 +100,7 @@ public sealed class ShippingService : IShippingService
         order.status = OrderStatuses.Shipped;
         await _db.SaveChangesAsync(ct);
 
-        // Notify buyer about shipment
-        try { await _emailService.SendOrderStatusChangedEmailAsync(order, oldStatus!, order.status, ct); } catch {}
+        try { await _emailService.SendOrderStatusChangedEmailAsync(order, oldStatus!, order.status, ct); } catch { }
 
         await _seventeenTrackClient.RegisterTrackingAsync(
             new Register17TrackRequest(

@@ -11,7 +11,7 @@ public sealed class ProductProfile : Profile
     {
         CreateMap<Product, ProductListItemDto>()
             .ForCtorParam("thumbnailUrl",
-                opt => opt.MapFrom(src => ProductImageJson.Read(src).FirstOrDefault()))
+                opt => opt.MapFrom(src => BuildThumbnailUrl(src)))
             .ForCtorParam("price",
                 opt => opt.MapFrom(src => src.price ?? 0))
             .ForCtorParam("categoryName",
@@ -45,7 +45,7 @@ public sealed class ProductProfile : Profile
 
         CreateMap<Product, ProductDetailDto>()
             .ForCtorParam("images",
-                opt => opt.MapFrom(src => ProductImageJson.Read(src)))
+                opt => opt.MapFrom(src => BuildImageUrls(src)))
             .ForCtorParam("price",
                 opt => opt.MapFrom(src => src.price ?? 0))
             .ForCtorParam("categoryName",
@@ -81,6 +81,36 @@ public sealed class ProductProfile : Profile
                     : (DateTime?)null))
             .ForCtorParam("viewCount",
                 opt => opt.MapFrom(src => src.viewCount ?? 0));
+    }
+
+    private static string? BuildThumbnailUrl(Product src)
+    {
+        var firstImage = ProductImageJson.Read(src).FirstOrDefault();
+        return BuildUploadUrl(src.id, firstImage);
+    }
+
+    private static List<string> BuildImageUrls(Product src)
+    {
+        return ProductImageJson.Read(src)
+            .Select(image => BuildUploadUrl(src.id, image))
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .Cast<string>()
+            .ToList();
+    }
+
+    private static string? BuildUploadUrl(int productId, string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return null;
+
+        if (fileName.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            fileName.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+            fileName.StartsWith("/", StringComparison.OrdinalIgnoreCase))
+        {
+            return fileName;
+        }
+
+        return $"/uploads/products/{productId}/{fileName}";
     }
 
     private static string? FormatTimeLeft(DateTime endTimeUtc)

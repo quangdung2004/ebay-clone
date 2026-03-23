@@ -12,7 +12,7 @@ WORKDIR /src/backend
 RUN dotnet restore CloneEbay.sln
 RUN dotnet publish CloneEbay.Api/CloneEbay.Api.csproj -c Release -o /app/publish
 
-FROM mcr.microsoft.com/dotnet/aspnet:8.0
+FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
 COPY --from=build /app/publish .
 EXPOSE 8080

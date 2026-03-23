@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   frontend:
     build:
@@ -22,11 +20,11 @@ services:
       - "8081:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      Frontend__BaseUrl: "http://IP_VPS"
-      ConnectionStrings__MyCnn: "Server=sqlserver,1433;Database=CloneEbayDB;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;"
+      Frontend__BaseUrl: "http://159.89.195.148"
+      ConnectionStrings__MyCnn: "Server=sqlserver,1433;Database=CloneEbayDB;User Id=sa;Password=Dung@123456Strong!;TrustServerCertificate=True;"
       Jwt__Issuer: "CloneEbay"
       Jwt__Audience: "CloneEbayClient"
-      Jwt__Key: "your-super-secret-key-please-change-this-123456789"
+      Jwt__Key: "super_secret_key_change_me_1234567890_very_long_key"
       Email__Host: "mailhog"
       Email__Port: "1025"
       Email__From: "noreply@clone-ebay.com"
@@ -35,9 +33,11 @@ services:
       RabbitMQ__Port: "5672"
       RabbitMQ__UserName: "guest"
       RabbitMQ__Password: "guest"
-      PayPal__ClientId: "YOUR_PAYPAL_CLIENT_ID"
-      PayPal__ClientSecret: "YOUR_PAYPAL_CLIENT_SECRET"
+      PayPal__ClientId: "${PAYPAL_CLIENT_ID}"
+      PayPal__ClientSecret: "${PAYPAL_CLIENT_SECRET}"
       PayPal__UseSandbox: "true"
+      SeventeenTrack__WebhookSecret: "${SEVENTEENTRACK_WEBHOOK_SECRET}"
+      SeventeenTrack__ApiKey: "${SEVENTEENTRACK_API_KEY}"
     depends_on:
       - sqlserver
       - redis
@@ -57,7 +57,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       Frontend__BaseUrl: "http://159.89.195.148"
-      ConnectionStrings__MyCnn: "Server=.;Database=CloneEbayDB;User Id=sa;Password=123;TrustServerCertificate=True;"
+      ConnectionStrings__MyCnn: "Server=sqlserver,1433;Database=CloneEbayDB;User Id=sa;Password=Dung@123456Strong!;TrustServerCertificate=True;"
       Jwt__Issuer: "CloneEbay"
       Jwt__Audience: "CloneEbayClient"
       Jwt__Key: "super_secret_key_change_me_1234567890_very_long_key"
@@ -110,9 +110,7 @@ services:
     restart: always
     environment:
       ACCEPT_EULA: "Y"
-      SA_PASSWORD: "123"
-    ports:
-      - "1433:1433"
+      SA_PASSWORD: "Dung@123456Strong!"
     volumes:
       - sql_data:/var/opt/mssql
     networks:

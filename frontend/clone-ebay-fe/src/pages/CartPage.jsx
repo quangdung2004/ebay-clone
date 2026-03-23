@@ -238,12 +238,12 @@ const CartPage = () => {
 
   const handleCheckout = async () => {
     if (!selectedValidItems.length) {
-      showError('Vui lòng chọn sản phẩm hợp lệ để đặt hàng.');
+      showError('Please select valid products to place the order.');
       return;
     }
 
     if (!selectedAddress?.id) {
-      showError('Vui lòng chọn địa chỉ giao hàng.');
+      showError('Please select a shipping address.');
       navigate('/addresses?redirect=/cart');
       return;
     }
@@ -251,9 +251,7 @@ const CartPage = () => {
     try {
       setCheckingOut(true);
 
-      // Just navigate to /checkout with items in state
       navigate('/checkout', { state: { items: selectedValidItems } });
-      
     } catch (error) {
       const parsed = parseApiError(error, 'Checkout failed');
       showError(parsed.message);
@@ -265,7 +263,7 @@ const CartPage = () => {
   if (loading) {
     return (
       <div className="cart-page">
-        <div className="cart-empty-card">Đang tải giỏ hàng...</div>
+        <div className="cart-empty-card">Loading cart...</div>
       </div>
     );
   }
@@ -274,10 +272,10 @@ const CartPage = () => {
     return (
       <div className="cart-page">
         <div className="cart-empty-card">
-          <h2>Giỏ hàng của bạn đang trống</h2>
-          <p>Hãy thêm sản phẩm từ trang chi tiết sản phẩm để tiếp tục.</p>
+          <h2>Your cart is empty</h2>
+          <p>Add products from the product detail page to continue.</p>
           <Link to="/" className="cart-buy-btn">
-            Tiếp tục mua sắm
+            Continue Shopping
           </Link>
         </div>
       </div>
@@ -290,7 +288,7 @@ const CartPage = () => {
         <div className="cart-address-icon">📍</div>
 
         <div className="cart-address-content">
-          <div className="cart-address-title">Địa chỉ nhận hàng</div>
+          <div className="cart-address-title">Shipping Address</div>
 
           {selectedAddress ? (
             <>
@@ -304,7 +302,7 @@ const CartPage = () => {
             </>
           ) : (
             <div className="cart-address-placeholder">
-              Bạn chưa chọn địa chỉ giao hàng. Bấm vào đây để chọn địa chỉ.
+              No shipping address selected yet. Click here to choose an address.
             </div>
           )}
         </div>
@@ -319,12 +317,12 @@ const CartPage = () => {
             checked={allSelectableChecked}
             onChange={toggleSelectAll}
           />
-          <span>Sản phẩm</span>
+          <span>Product</span>
         </label>
-        <div className="cart-col">Đơn giá</div>
-        <div className="cart-col">Số lượng</div>
-        <div className="cart-col">Số tiền</div>
-        <div className="cart-col">Thao tác</div>
+        <div className="cart-col">Unit Price</div>
+        <div className="cart-col">Quantity</div>
+        <div className="cart-col">Total Price</div>
+        <div className="cart-col">Actions</div>
       </div>
 
       <div className="cart-list">
@@ -388,8 +386,8 @@ const CartPage = () => {
 
                         <div className="cart-product-sub">
                           {unavailable
-                            ? 'Sản phẩm hiện không thể checkout'
-                            : `${product.availableQuantity} sản phẩm có sẵn`}
+                            ? 'This product is currently unavailable for checkout'
+                            : `${product.availableQuantity} items available`}
                         </div>
                       </div>
                     </div>
@@ -461,7 +459,7 @@ const CartPage = () => {
                         className="cart-remove-btn"
                         onClick={() => onRemove(item.productId)}
                       >
-                        Xóa
+                        Remove
                       </button>
                     </div>
                   </div>
@@ -480,7 +478,7 @@ const CartPage = () => {
               checked={allSelectableChecked}
               onChange={toggleSelectAll}
             />
-            <span>Chọn Tất Cả ({selectableIds.length})</span>
+            <span>Select All ({selectableIds.length})</span>
           </label>
 
           <button
@@ -492,14 +490,14 @@ const CartPage = () => {
               setSelectedItemIds([]);
             }}
           >
-            Xóa tất cả
+            Remove All
           </button>
         </div>
 
         <div className="cart-bottom-right">
           <div className="cart-summary-text">
             <span>
-              Tổng cộng ({selectedValidItems.length} sản phẩm):
+              Total ({selectedValidItems.length} items):
             </span>
             <strong>{formatCurrency(total)}</strong>
           </div>
@@ -510,7 +508,7 @@ const CartPage = () => {
             onClick={handleCheckout}
             disabled={checkingOut || !selectedValidItems.length}
           >
-            {checkingOut ? 'Đang xử lý...' : 'Mua Hàng'}
+            {checkingOut ? 'Processing...' : 'Checkout'}
           </button>
         </div>
       </div>

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 
+
 namespace CloneEbay.Api.Controllers;
 
 [EnableRateLimiting("auth")]

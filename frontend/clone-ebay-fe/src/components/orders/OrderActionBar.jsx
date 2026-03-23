@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { cancelOrder } from '../../api/orderApi';
 import { markOrderProcessing, shipOrder } from '../../api/sellerApi';
 import { useToast } from '../Toast';
-import { PAYMENT_METHOD_LABELS } from '../../utils/orderStatus';
+
 
 const OrderActionBar = ({ order, isSeller, isBuyer, onOrderUpdated }) => {
   const [isActionLoading, setIsActionLoading] = useState(false);
@@ -90,11 +90,7 @@ const OrderActionBar = ({ order, isSeller, isBuyer, onOrderUpdated }) => {
            This order has been successfully paid.
          </div>
        )}
-       {isBuyer && order.status === 'PENDING_PAYMENT' && latestPayment?.method === 'COD' && (
-         <div className="order-message-info" style={{ padding: '12px', background: '#e5f3ff', color: '#004f99', borderRadius: '4px', marginBottom: '15px' }}>
-           Method: {PAYMENT_METHOD_LABELS['COD'] || 'COD'} - Please prepare cash for delivery.
-         </div>
-       )}
+    
        {order.status === 'CANCELLED' && (
          <div className="order-message-error" style={{ padding: '12px', background: '#fcebe8', color: '#a0050b', borderRadius: '4px', marginBottom: '15px' }}>
            This order is cancelled.

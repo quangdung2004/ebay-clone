@@ -14,4 +14,6 @@ public partial class User
     public virtual ICollection<RefreshToken> RefreshToken { get; set; } = new List<RefreshToken>();
 
     public virtual ICollection<UserToken> UserToken { get; set; } = new List<UserToken>();
+
+
 }

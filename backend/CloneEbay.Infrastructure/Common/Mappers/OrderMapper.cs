@@ -16,7 +16,8 @@ public static class OrderMapper
             ?? order.OrderItem.Sum(x => (x.unitPrice ?? 0m) * (x.quantity ?? 0));
 
         var shippingFee = order.shippingFee ?? 0m;
-        var totalPrice = order.totalPrice ?? (subtotal + shippingFee);
+        var discountAmount = order.discountAmount ?? 0m;
+        var totalPrice = order.totalPrice ?? Math.Max(0m, subtotal + shippingFee - discountAmount);
 
         return new OrderDetailDto(
             id: order.id,
@@ -25,6 +26,8 @@ public static class OrderMapper
             orderDate: order.orderDate,
             subtotalAmount: subtotal,
             shippingFee: shippingFee,
+            couponCode: order.couponCode,
+            discountAmount: discountAmount,
             totalPrice: totalPrice,
             status: order.status,
             addressChangeCount: order.addressChangeCount,
@@ -42,7 +45,8 @@ public static class OrderMapper
             ?? order.OrderItem.Sum(x => (x.unitPrice ?? 0m) * (x.quantity ?? 0));
 
         var shippingFee = order.shippingFee ?? 0m;
-        var totalPrice = order.totalPrice ?? (subtotal + shippingFee);
+        var discountAmount = order.discountAmount ?? 0m;
+        var totalPrice = order.totalPrice ?? Math.Max(0m, subtotal + shippingFee - discountAmount);
 
         return new OrderSummaryDto(
             id: order.id,
@@ -52,6 +56,8 @@ public static class OrderMapper
             orderDate: order.orderDate,
             subtotalAmount: subtotal,
             shippingFee: shippingFee,
+            couponCode: order.couponCode,
+            discountAmount: discountAmount,
             totalPrice: totalPrice,
             status: order.status,
             addressChangeCount: order.addressChangeCount,

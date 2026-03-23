@@ -13,7 +13,8 @@ public record OrderItemSummaryDto(
     decimal lineTotal,
     int? sellerId,
     string? sellerName
-) {
+)
+{
     public string currency { get; init; } = "USD";
 }
 
@@ -23,7 +24,8 @@ public record PaymentSummaryDto(
     string? method,
     string? status,
     DateTime? paidAt
-) {
+)
+{
     public string currency { get; init; } = "USD";
 }
 
@@ -63,6 +65,17 @@ public record AddressSummaryDto(
     bool? isDefault
 );
 
+public record OrderPricePreviewDto(
+    decimal subtotalAmount,
+    decimal shippingFee,
+    string? couponCode,
+    decimal discountAmount,
+    decimal totalPrice
+)
+{
+    public string currency { get; init; } = "USD";
+}
+
 public record OrderSummaryDto(
     int id,
     int? buyerId,
@@ -71,6 +84,8 @@ public record OrderSummaryDto(
     DateTime? orderDate,
     decimal subtotalAmount,
     decimal shippingFee,
+    string? couponCode,
+    decimal discountAmount,
     decimal totalPrice,
     string? status,
     int addressChangeCount,
@@ -90,6 +105,8 @@ public record OrderDetailDto(
     DateTime? orderDate,
     decimal subtotalAmount,
     decimal shippingFee,
+    string? couponCode,
+    decimal discountAmount,
     decimal totalPrice,
     string? status,
     int addressChangeCount,
@@ -118,11 +135,12 @@ public record CreateOrderRequest(
 
     int? addressId,
 
+    [param: StringLength(50, ErrorMessage = ValidationMessages.MaxLength)]
+    string? couponCode,
+
     [param: Required]
     List<CreateOrderItemRequest> items
 );
-
-
 
 public record UpdateOrderAddressRequest(
     [param: Range(1, int.MaxValue, ErrorMessage = ValidationMessages.PositiveNumber)]

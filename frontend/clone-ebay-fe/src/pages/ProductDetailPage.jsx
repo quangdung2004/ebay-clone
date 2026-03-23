@@ -22,7 +22,7 @@ import { addToCart, getCartItem } from '../utils/cartUtils';
 import { getSelectedShippingAddressId } from '../utils/checkoutAddress';
 import './ProductDetailPage.css';
 
-const DEFAULT_PAYMENT_METHOD = 'COD';
+const DEFAULT_PAYMENT_METHOD = 'PAYPAL';
 
 const ProductDetailPage = () => {
   const { id } = useParams();

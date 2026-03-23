@@ -17,7 +17,6 @@ export const payOrder = async (id) => {
   return response.data?.data;
 };
 
-// ALias for clarity
 export const createPayPalOrder = payOrder;
 
 export const capturePayPalOrder = async (id, paypalOrderId) => {
@@ -42,4 +41,14 @@ export const updateOrderAddress = async (id, addressId) => {
 export const checkoutOrder = async (payload) => {
   const response = await axiosInstance.post('/orders/checkout', payload);
   return response.data?.data;
+};
+
+export const previewCheckoutOrder = async (payload) => {
+  const response = await axiosInstance.post('/orders/checkout/preview', payload);
+  return response.data?.data;
+};
+
+export const getMyCoupons = async () => {
+  const response = await axiosInstance.get('/orders/my-coupons');
+  return response.data?.data || [];
 };

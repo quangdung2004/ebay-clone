@@ -55,4 +55,12 @@ public class OrdersController : BaseController
     [HttpPost("{id:int}/cancel")]
     public async Task<ApiResponse<OrderDetailDto>> Cancel([FromRoute] int id, CancellationToken ct)
         => Success(await _svc.CancelAsync(CurrentUserId, id, ct), "Cancel order successfully", "ORDER_CANCEL_SUCCESS");
+
+    [HttpPost("checkout/preview")]
+    public async Task<ApiResponse<OrderPricePreviewDto>> PreviewCheckout([FromBody] CreateOrderRequest req, CancellationToken ct)
+    => Success(await _svc.PreviewAsync(CurrentUserId, req, ct), "Preview order successfully", "ORDER_PREVIEW_SUCCESS");
+
+    [HttpGet("my-coupons")]
+    public async Task<ApiResponse<IReadOnlyList<MyCouponDto>>> GetMyCoupons(CancellationToken ct)
+    => Success(await _svc.GetMyCouponsAsync(CurrentUserId, ct), "Get coupons successfully", "COUPON_LIST_SUCCESS");
 }

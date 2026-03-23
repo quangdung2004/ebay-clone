@@ -34,22 +34,35 @@ public class GlobalExceptionMiddleware
                 context.Items["X-Correlation-Id"]?.ToString()
                 ?? context.TraceIdentifier;
 
+            var transactionId =
+                context.Items["X-Transaction-Id"]?.ToString()
+                ?? correlationId;
+
             _logger.LogError(ex,
-                "Unhandled error | cid={cid} | path={path}",
+                "Unhandled error | cid={cid} | tx={tx} | path={path} | method={method}",
                 correlationId,
-                context.Request.Path);
+                transactionId,
+                context.Request.Path,
+                context.Request.Method);
 
             if (context.Response.HasStarted)
             {
-                _logger.LogWarning("Response already started | cid={cid}", correlationId);
+                _logger.LogWarning(
+                    "Response already started | cid={cid} | tx={tx}",
+                    correlationId,
+                    transactionId);
                 throw;
             }
 
-            await WriteErrorAsync(context, ex, correlationId);
+            await WriteErrorAsync(context, ex, correlationId, transactionId);
         }
     }
 
-    private static Task WriteErrorAsync(HttpContext context, Exception ex, string correlationId)
+    private static Task WriteErrorAsync(
+        HttpContext context,
+        Exception ex,
+        string correlationId,
+        string transactionId)
     {
         int statusCode;
         string code;
@@ -97,6 +110,8 @@ public class GlobalExceptionMiddleware
 
         context.Response.StatusCode = statusCode;
         context.Response.ContentType = "application/json";
+        context.Response.Headers["X-Correlation-Id"] = correlationId;
+        context.Response.Headers["X-Transaction-Id"] = transactionId;
 
         var response = ApiResponse<object>.Fail(
             message: message,

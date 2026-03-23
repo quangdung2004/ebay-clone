@@ -1,7 +1,14 @@
 import { formatCurrency, getPlaceholderImage, normalizeProductImageUrl } from '../../utils/productUtils';
 import { Link } from 'react-router-dom';
 
-const OrderItemList = ({ items, subtotalAmount = 0, shippingFee = 0, totalPrice = 0 }) => {
+const OrderItemList = ({
+  items,
+  subtotalAmount = 0,
+  shippingFee = 0,
+  discountAmount = 0,
+  couponCode = '',
+  totalPrice = 0,
+}) => {
   if (!items || items.length === 0) {
     return <div className="order-items-empty">No items found in this order.</div>;
   }
@@ -38,21 +45,41 @@ const OrderItemList = ({ items, subtotalAmount = 0, shippingFee = 0, totalPrice 
         ))}
       </div>
 
-      {/* Price Summary Breakdown */}
-      <div className="order-price-summary" style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '2px solid #f3f4f6' }}>
-        <div style={{ maxWidth: '300px', marginLeft: 'auto' }}>
-           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', color: '#4b5563' }}>
-              <span>Subtotal:</span>
-              <span>{formatCurrency(subtotalAmount)}</span>
-           </div>
-           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', color: '#4b5563' }}>
-              <span>Shipping Fee:</span>
-              <span>{formatCurrency(shippingFee)}</span>
-           </div>
-           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #e5e7eb', fontSize: '1.2rem', fontWeight: 'bold', color: '#111827' }}>
-              <span>Total:</span>
-              <span style={{ color: 'var(--primary-color)' }}>{formatCurrency(totalPrice)}</span>
-           </div>
+      <div
+        className="order-price-summary"
+        style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '2px solid #f3f4f6' }}
+      >
+        <div style={{ maxWidth: '320px', marginLeft: 'auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', color: '#4b5563' }}>
+            <span>Subtotal:</span>
+            <span>{formatCurrency(subtotalAmount)}</span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', color: '#4b5563' }}>
+            <span>Shipping Fee:</span>
+            <span>{formatCurrency(shippingFee)}</span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', color: '#4b5563' }}>
+            <span>Coupon Discount{couponCode ? ` (${couponCode})` : ''}:</span>
+            <span>-{formatCurrency(discountAmount)}</span>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              marginTop: '1rem',
+              paddingTop: '1rem',
+              borderTop: '1px solid #e5e7eb',
+              fontSize: '1.2rem',
+              fontWeight: 'bold',
+              color: '#111827',
+            }}
+          >
+            <span>Total:</span>
+            <span style={{ color: 'var(--primary-color)' }}>{formatCurrency(totalPrice)}</span>
+          </div>
         </div>
       </div>
     </div>

@@ -20,6 +20,8 @@ public partial class CloneEbayDbContext : DbContext
     public virtual DbSet<Bid> Bid { get; set; }
     public virtual DbSet<Category> Category { get; set; }
     public virtual DbSet<Coupon> Coupon { get; set; }
+
+    public virtual DbSet<UserCoupon> UserCoupon { get; set; }
     public virtual DbSet<Dispute> Dispute { get; set; }
     public virtual DbSet<Feedback> Feedback { get; set; }
     public virtual DbSet<Inventory> Inventory { get; set; }
@@ -105,6 +107,25 @@ public partial class CloneEbayDbContext : DbContext
                 .HasConstraintName("FK__Coupon__productI__60A75C0F");
         });
 
+        modelBuilder.Entity<UserCoupon>(entity =>
+        {
+            entity.HasKey(e => e.id);
+
+            entity.Property(e => e.assignedAt).HasColumnType("datetime");
+
+            entity.HasOne(d => d.user)
+                .WithMany(p => p.UserCoupon)
+                .HasForeignKey(d => d.userId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(d => d.coupon)
+                .WithMany(p => p.UserCoupon)
+                .HasForeignKey(d => d.couponId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => new { e.userId, e.couponId }).IsUnique();
+        });
+
         modelBuilder.Entity<Dispute>(entity =>
         {
             entity.HasKey(e => e.id).HasName("PK__Dispute__3213E83F5F1E1150");
@@ -183,6 +204,8 @@ public partial class CloneEbayDbContext : DbContext
             entity.Property(e => e.subtotalAmount).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.shippingFee).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.lastAddressChangedAt).HasColumnType("datetime");
+            entity.Property(e => e.couponCode).HasMaxLength(50);
+            entity.Property(e => e.discountAmount).HasColumnType("decimal(18, 2)");
 
             entity.HasOne(d => d.address).WithMany(p => p.OrderTable)
                 .HasForeignKey(d => d.addressId)

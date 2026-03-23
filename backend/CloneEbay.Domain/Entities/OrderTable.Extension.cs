@@ -7,6 +7,9 @@ public partial class OrderTable
     public decimal? subtotalAmount { get; set; }
     public decimal? shippingFee { get; set; }
 
+    public string? couponCode { get; set; }
+    public decimal? discountAmount { get; set; }
+
     public int addressChangeCount { get; set; }
     public DateTime? lastAddressChangedAt { get; set; }
 

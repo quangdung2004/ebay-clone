@@ -42,9 +42,15 @@ const OrderDetailPage = () => {
                            (order?.addressChangeCount || 0) < 1 && 
                            isStatusEligibleForChange;
 
-  const displayTotal = viewAsSeller 
-    ? visibleItems.reduce((sum, item) => sum + item.lineTotal, 0) + (order.shippingFee || 0)
-    : order?.totalPrice;
+ const displaySubtotal = viewAsSeller
+  ? visibleItems.reduce((sum, item) => sum + item.lineTotal, 0)
+  : (order?.subtotalAmount || 0);
+
+const displayDiscount = viewAsSeller ? 0 : (order?.discountAmount || 0);
+
+const displayTotal = viewAsSeller
+  ? displaySubtotal + (order?.shippingFee || 0)
+  : (order?.totalPrice || 0);
 
   if (loading) {
     return (
@@ -91,12 +97,14 @@ const OrderDetailPage = () => {
       <div className="order-detail-grid">
          <div className="order-detail-main">
             {isBuyer && <PayPalButtonsSection order={order} onPaymentSuccess={refreshOrder} />}
-            <OrderItemList 
-               items={visibleItems} 
-               subtotalAmount={viewAsSeller ? visibleItems.reduce((s, i) => s + i.lineTotal, 0) : order.subtotalAmount}
-               shippingFee={order.shippingFee}
-               totalPrice={displayTotal}
-            />
+            <OrderItemList
+   items={visibleItems}
+   subtotalAmount={displaySubtotal}
+   shippingFee={order.shippingFee || 0}
+   discountAmount={displayDiscount}
+   couponCode={order.couponCode || ''}
+   totalPrice={displayTotal}
+/>
             <OrderActionBar 
                order={order} 
                isSeller={isSeller}

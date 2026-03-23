@@ -5,10 +5,12 @@ namespace CloneEbay.Application.Orders;
 
 public interface IOrderService
 {
+    Task<OrderPricePreviewDto> PreviewAsync(int buyerId, CreateOrderRequest req, CancellationToken ct);
     Task<OrderDetailDto> CreateAsync(int buyerId, CreateOrderRequest req, CancellationToken ct);
     Task<PagedResponse<OrderSummaryDto>> GetMyOrdersAsync(int buyerId, int page, int pageSize, CancellationToken ct);
     Task<PagedResponse<OrderSummaryDto>> GetSellerOrdersAsync(int sellerId, int page, int pageSize, CancellationToken ct);
     Task<OrderDetailDto> GetByIdAsync(int buyerId, int orderId, CancellationToken ct);
     Task<OrderDetailDto> UpdateAddressAsync(int buyerId, int orderId, int addressId, CancellationToken ct);
     Task<OrderDetailDto> CancelAsync(int buyerId, int orderId, CancellationToken ct);
-}
+    Task<IReadOnlyList<MyCouponDto>> GetMyCouponsAsync(int buyerId, CancellationToken ct);
+}   

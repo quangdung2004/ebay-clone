@@ -2,7 +2,7 @@
 using System.Text.Json;
 using CloneEbay.Application.Notifications;
 using CloneEbay.Contracts.Messaging;
-using Microsoft.AspNetCore.Connections;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
@@ -15,17 +15,26 @@ public sealed class RabbitMqAuctionEventPublisher : IAuctionEventPublisher, IDis
     private readonly IModel _channel;
     private const string QueueName = "auction.winner.email";
     private readonly ILogger<RabbitMqAuctionEventPublisher> _logger;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public RabbitMqAuctionEventPublisher(IConfiguration config, ILogger<RabbitMqAuctionEventPublisher> logger)
+    public RabbitMqAuctionEventPublisher(
+        IConfiguration config,
+        ILogger<RabbitMqAuctionEventPublisher> logger,
+        IHttpContextAccessor httpContextAccessor)
     {
         _logger = logger;
+        _httpContextAccessor = httpContextAccessor;
+
         var hostName = config["RabbitMQ:HostName"] ?? "localhost";
         var portStr = config["RabbitMQ:Port"];
         var port = string.IsNullOrEmpty(portStr) ? 5672 : int.Parse(portStr);
         var userName = config["RabbitMQ:UserName"] ?? "guest";
         var password = config["RabbitMQ:Password"] ?? "guest";
 
-        _logger.LogInformation("Connecting to RabbitMQ at {Host}:{Port}...", hostName, port);
+        _logger.LogInformation(
+            "Connecting to RabbitMQ | host={host} | port={port}",
+            hostName,
+            port);
 
         var factory = new ConnectionFactory
         {
@@ -49,14 +58,29 @@ public sealed class RabbitMqAuctionEventPublisher : IAuctionEventPublisher, IDis
 
     public Task PublishWinnerEmailAsync(int productId, int winnerUserId, decimal winningBid, int orderId, CancellationToken ct)
     {
-        try 
+        try
         {
+            var httpContext = _httpContextAccessor.HttpContext;
+            var correlationId =
+                httpContext?.Items["X-Correlation-Id"]?.ToString()
+                ?? httpContext?.TraceIdentifier
+                ?? Guid.NewGuid().ToString("N");
+
+            var transactionId =
+                httpContext?.Items["X-Transaction-Id"]?.ToString()
+                ?? correlationId;
+
             var payload = new AuctionWinnerEmailMessage(productId, winnerUserId, winningBid, orderId);
             var json = JsonSerializer.Serialize(payload);
             var body = Encoding.UTF8.GetBytes(json);
 
             var props = _channel.CreateBasicProperties();
             props.Persistent = true;
+            props.CorrelationId = correlationId;
+            props.MessageId = transactionId;
+            props.Headers ??= new Dictionary<string, object>();
+            props.Headers["x-correlation-id"] = correlationId;
+            props.Headers["x-transaction-id"] = transactionId;
 
             _channel.BasicPublish(
                 exchange: "",
@@ -64,11 +88,21 @@ public sealed class RabbitMqAuctionEventPublisher : IAuctionEventPublisher, IDis
                 basicProperties: props,
                 body: body);
 
-            _logger.LogInformation("Published AuctionWinnerEmailMessage to Queue: {QueueName}. ProductId: {ProductId}", QueueName, productId);
+            _logger.LogInformation(
+                "RabbitMQ publish succeeded | cid={cid} | tx={tx} | queue={queue} | productId={productId} | orderId={orderId}",
+                correlationId,
+                transactionId,
+                QueueName,
+                productId,
+                orderId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to publish AuctionWinnerEmailMessage for ProductId: {ProductId}", productId);
+            _logger.LogError(ex,
+                "RabbitMQ publish failed | queue={queue} | productId={productId} | orderId={orderId}",
+                QueueName,
+                productId,
+                orderId);
             throw;
         }
 

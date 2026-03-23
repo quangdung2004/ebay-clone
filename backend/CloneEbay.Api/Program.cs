@@ -16,8 +16,16 @@ using Microsoft.IdentityModel.Tokens;
 var builder = WebApplication.CreateBuilder(args);
 
 // ======================
+// Logging
+
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
+// ======================
 // Services
 
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 
 builder.Services.AddApplication();
@@ -34,6 +42,10 @@ builder.Services
                 context.HttpContext.Items["X-Correlation-Id"]?.ToString()
                 ?? context.HttpContext.TraceIdentifier;
 
+            var transactionId =
+                context.HttpContext.Items["X-Transaction-Id"]?.ToString()
+                ?? correlationId;
+
             var firstError = context.ModelState
                 .Where(x => x.Value?.Errors.Count > 0)
                 .SelectMany(x => x.Value!.Errors)
@@ -47,6 +59,9 @@ builder.Services
                 code: "VALIDATION_ERROR",
                 correlationId: correlationId
             );
+
+            context.HttpContext.Response.Headers["X-Correlation-Id"] = correlationId;
+            context.HttpContext.Response.Headers["X-Transaction-Id"] = transactionId;
 
             return new BadRequestObjectResult(payload);
         };
@@ -139,15 +154,52 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    options.AddPolicy("auth", _ =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: "global",
+    // Global limiter cho toàn project
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+    {
+        var userId =
+            httpContext.User?.Identity?.IsAuthenticated == true
+                ? httpContext.User.FindFirst("sub")?.Value
+                    ?? httpContext.User.FindFirst("id")?.Value
+                    ?? httpContext.User.Identity?.Name
+                : null;
+
+        var ip =
+            httpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown-ip";
+
+        var key = !string.IsNullOrWhiteSpace(userId)
+            ? $"user:{userId}"
+            : $"ip:{ip}";
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: key,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 120,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
+
+    // Policy riêng cho auth endpoint
+    options.AddPolicy("auth", httpContext =>
+    {
+        var ip =
+            httpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown-ip";
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"auth:{ip}",
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 25,
                 Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
 
     options.OnRejected = async (context, token) =>
     {
@@ -155,7 +207,25 @@ builder.Services.AddRateLimiter(options =>
             context.HttpContext.Items["X-Correlation-Id"]?.ToString()
             ?? context.HttpContext.TraceIdentifier;
 
+        var transactionId =
+            context.HttpContext.Items["X-Transaction-Id"]?.ToString()
+            ?? correlationId;
+
+        var logger = context.HttpContext.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("RateLimiter");
+
+        logger.LogWarning(
+            "Rate limit rejected | cid={cid} | tx={tx} | method={method} | path={path} | ip={ip}",
+            correlationId,
+            transactionId,
+            context.HttpContext.Request.Method,
+            context.HttpContext.Request.Path,
+            context.HttpContext.Connection.RemoteIpAddress?.ToString());
+
         context.HttpContext.Response.ContentType = "application/json";
+        context.HttpContext.Response.Headers["X-Correlation-Id"] = correlationId;
+        context.HttpContext.Response.Headers["X-Transaction-Id"] = transactionId;
 
         var payload = ApiResponse<object>.Fail(
             message: "Too many requests.",
@@ -180,10 +250,10 @@ var app = builder.Build();
 // Pipeline
 
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseMiddleware<RequestTransactionLoggingMiddleware>();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
 app.UseCors("fe");
-
 app.UseCookiePolicy();
 
 if (app.Environment.IsDevelopment())
@@ -214,6 +284,13 @@ app.UseStatusCodePages(async context =>
     var correlationId =
         context.HttpContext.Items["X-Correlation-Id"]?.ToString()
         ?? context.HttpContext.TraceIdentifier;
+
+    var transactionId =
+        context.HttpContext.Items["X-Transaction-Id"]?.ToString()
+        ?? correlationId;
+
+    context.HttpContext.Response.Headers["X-Correlation-Id"] = correlationId;
+    context.HttpContext.Response.Headers["X-Transaction-Id"] = transactionId;
 
     if (response.StatusCode is 404 or 405)
     {

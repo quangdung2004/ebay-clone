@@ -2,6 +2,7 @@ using CloneEbay.Application.Auth;
 using CloneEbay.Application.Auctions;
 using CloneEbay.Application.Bids;
 using CloneEbay.Application.Categories;
+using CloneEbay.Application.Common.Diagnostics;
 using CloneEbay.Application.Notifications;
 using CloneEbay.Application.Orders;
 using CloneEbay.Application.Payments;
@@ -12,6 +13,7 @@ using CloneEbay.Infrastructure.Auth;
 using CloneEbay.Infrastructure.Auctions;
 using CloneEbay.Infrastructure.Bids;
 using CloneEbay.Infrastructure.Categories;
+using CloneEbay.Infrastructure.Common.Diagnostics;
 using CloneEbay.Infrastructure.Messaging;
 using CloneEbay.Infrastructure.Orders;
 using CloneEbay.Infrastructure.Payments;
@@ -46,6 +48,10 @@ public static class DependencyInjection
 
         // SignalR
         services.AddSignalR();
+
+        // Diagnostics
+        services.AddScoped<ITransactionContextAccessor, TransactionContextAccessor>();
+        services.AddTransient<OutboundLoggingHandler>();
 
         // JWT options + service
         services.Configure<JwtOptions>(configuration.GetSection("Jwt"));
@@ -99,7 +105,8 @@ public static class DependencyInjection
         services.AddHttpClient<IPaymentService, PaymentService>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
-        });
+        })
+        .AddHttpMessageHandler<OutboundLoggingHandler>();
 
         // Seller wallet / settlement
         services.AddScoped<ISellerHoldPolicyService, SellerHoldPolicyService>();
@@ -111,20 +118,21 @@ public static class DependencyInjection
         services.AddHttpClient<ISeventeenTrackClient, SeventeenTrackClient>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
-        });
+        })
+        .AddHttpMessageHandler<OutboundLoggingHandler>();
 
         // Shipping & Orders
         services.AddScoped<IShippingService, ShippingService>();
         services.AddScoped<IShippingWebhookService, ShippingWebhookService>();
         services.AddScoped<CloneEbay.Application.Orders.IOrderEmailService, CloneEbay.Infrastructure.Orders.OrderEmailService>();
 
-        
         // Geocoding
         services.AddHttpClient<CloneEbay.Application.Common.Interfaces.IGeocodingService, NominatimGeocodingService>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(10);
             client.DefaultRequestHeaders.Add("User-Agent", "CloneEbayTracking/1.0");
-        });
+        })
+        .AddHttpMessageHandler<OutboundLoggingHandler>();
 
         // Realtime + messaging
         services.AddSingleton<AuctionRealtimeNotifier>();
@@ -135,7 +143,6 @@ public static class DependencyInjection
         services.AddHostedService<AuctionWinnerEmailConsumer>();
         services.AddHostedService<CloneEbay.Infrastructure.Payments.SettlementReleaseBackgroundService>();
         services.AddHostedService<CloneEbay.Infrastructure.Orders.OrderAutoCancelBackgroundService>();
-
 
         return services;
     }

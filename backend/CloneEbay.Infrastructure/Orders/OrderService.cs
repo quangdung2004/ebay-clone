@@ -27,11 +27,9 @@ public sealed class OrderService : IOrderService
 
         var address = await ResolveBuyerAddressAsync(buyerId, req.addressId, ct);
         var products = await LoadProductsAsync(req, ct);
-
         var paymentMethod = NormalizePaymentMethod(req.paymentMethod);
         var now = DateTime.UtcNow;
 
-        decimal subtotal = 0m;
         var reservedLines = new List<(Product product, int quantity, decimal unitPrice)>();
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
@@ -50,25 +48,22 @@ public sealed class OrderService : IOrderService
                 : ProductStatuses.OutOfStock;
 
             var unitPrice = product.price ?? 0m;
-            subtotal += unitPrice * itemReq.quantity;
-
             reservedLines.Add((product, itemReq.quantity, unitPrice));
         }
 
-        var shippingFee = ShippingFeeCalculator.Calculate(address, reservedLines);
-        var grandTotal = subtotal + shippingFee;
+        var pricing = await CalculatePricingAsync(buyerId, address, reservedLines, req.couponCode, ct);
 
         var order = new OrderTable
         {
             buyerId = buyerId,
             addressId = address.id,
             orderDate = now,
-            status = paymentMethod == PaymentMethods.Cod
-                ? OrderStatuses.Paid
-                : OrderStatuses.PendingPayment,
-            subtotalAmount = subtotal,
-            shippingFee = shippingFee,
-            totalPrice = grandTotal,
+            status = OrderStatuses.PendingPayment,
+            subtotalAmount = pricing.Subtotal,
+            shippingFee = pricing.ShippingFee,
+            couponCode = pricing.AppliedCouponCode,
+            discountAmount = pricing.DiscountAmount,
+            totalPrice = pricing.GrandTotal,
             addressChangeCount = 0,
             lastAddressChangedAt = null
         };
@@ -91,15 +86,25 @@ public sealed class OrderService : IOrderService
         {
             orderId = order.id,
             userId = buyerId,
-            amount = grandTotal,
+            amount = pricing.GrandTotal,
             method = paymentMethod,
-            status = paymentMethod == PaymentMethods.Cod
-        ? PaymentStatuses.Captured
-        : PaymentStatuses.Pending,
-            paidAt = paymentMethod == PaymentMethods.Cod
-        ? now
-        : null
+            status = PaymentStatuses.Pending,
+            paidAt = null
         });
+
+        if (!string.IsNullOrWhiteSpace(req.couponCode))
+        {
+            var usedUserCoupon = await ResolveUserCouponAsync(
+                buyerId,
+                req.couponCode,
+                reservedLines.Select(x => x.product.id).ToHashSet(),
+                ct);
+
+            if (usedUserCoupon.quantity <= 0)
+                throw new ValidationException("Coupon quantity is not enough", "COUPON_OUT_OF_STOCK");
+
+            usedUserCoupon.quantity -= 1;
+        }
 
         await _db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
@@ -221,13 +226,16 @@ public sealed class OrderService : IOrderService
 
             var newShippingFee = ShippingFeeCalculator.Calculate(address, lines);
             var subtotal = order.subtotalAmount ?? lines.Sum(x => x.unitPrice * x.quantity);
+            var discountAmount = order.discountAmount ?? 0m;
 
             order.subtotalAmount = subtotal;
             order.shippingFee = newShippingFee;
-            order.totalPrice = subtotal + newShippingFee;
+            order.totalPrice = Math.Max(0m, subtotal + newShippingFee - discountAmount);
 
             if (latestPayment != null)
+            {
                 latestPayment.amount = order.totalPrice;
+            }
         }
 
         if (oldAddressId.HasValue)
@@ -284,6 +292,35 @@ public sealed class OrderService : IOrderService
         await tx.CommitAsync(ct);
 
         return await GetByIdAsync(buyerId, orderId, ct);
+    }
+
+    public async Task<IReadOnlyList<MyCouponDto>> GetMyCouponsAsync(int buyerId, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+
+        var result = await _db.UserCoupon
+            .AsNoTracking()
+            .Include(x => x.coupon)
+            .Where(x =>
+                x.userId == buyerId &&
+                x.quantity > 0 &&
+                x.coupon != null &&
+                (x.coupon.startDate == null || x.coupon.startDate <= now) &&
+                (x.coupon.endDate == null || x.coupon.endDate >= now))
+            .OrderByDescending(x => x.coupon!.discountPercent)
+            .Select(x => new MyCouponDto(
+                x.id,
+                x.couponId,
+                x.coupon!.code ?? "",
+                x.coupon.discountPercent ?? 0m,
+                x.quantity,
+                x.coupon.startDate,
+                x.coupon.endDate,
+                x.coupon.productId
+            ))
+            .ToListAsync(ct);
+
+        return result;
     }
 
     // ── Private helpers ─────────────────────────────────────────────
@@ -392,8 +429,8 @@ public sealed class OrderService : IOrderService
 
         var normalized = method.Trim().ToUpperInvariant();
 
-        if (normalized is not (PaymentMethods.Cod or PaymentMethods.PayPal))
-            throw new ValidationException("Payment method must be COD or PAYPAL", "PAYMENT_METHOD_INVALID");
+        if (normalized != PaymentMethods.PayPal)
+            throw new ValidationException("Payment method must be PAYPAL", "PAYMENT_METHOD_INVALID");
 
         return normalized;
     }
@@ -438,4 +475,106 @@ public sealed class OrderService : IOrderService
                 unitPrice: x.unitPrice ?? 0m))
             .ToList();
     }
+
+    public async Task<OrderPricePreviewDto> PreviewAsync(int buyerId, CreateOrderRequest req, CancellationToken ct)
+    {
+        var pricing = await BuildPricingAsync(buyerId, req, ct);
+
+        return new OrderPricePreviewDto(
+            subtotalAmount: pricing.Subtotal,
+            shippingFee: pricing.ShippingFee,
+            couponCode: pricing.AppliedCouponCode,
+            discountAmount: pricing.DiscountAmount,
+            totalPrice: pricing.GrandTotal);
+    }
+
+    private async Task<OrderPricingResult> BuildPricingAsync(int buyerId, CreateOrderRequest req, CancellationToken ct)
+    {
+        if (req.items == null || req.items.Count == 0)
+            throw new ValidationException("Order must contain at least one item", "ORDER_ITEMS_REQUIRED");
+
+        var address = await ResolveBuyerAddressAsync(buyerId, req.addressId, ct);
+        var products = await LoadProductsAsync(req, ct);
+
+        var lines = new List<(Product product, int quantity, decimal unitPrice)>();
+
+        foreach (var itemReq in req.items)
+        {
+            var product = products[itemReq.productId];
+            ValidateProductForCheckout(product, buyerId);
+
+            var available = await GetRemainingQuantityAsync(product.id, ct);
+            if (available < itemReq.quantity)
+                throw new ValidationException($"Insufficient stock for product: {product.title}", "INSUFFICIENT_STOCK");
+
+            lines.Add((product, itemReq.quantity, product.price ?? 0m));
+        }
+
+        return await CalculatePricingAsync(buyerId, address, lines, req.couponCode, ct);
+    }
+
+    private async Task<OrderPricingResult> CalculatePricingAsync(
+        int buyerId,
+        Address address,
+        List<(Product product, int quantity, decimal unitPrice)> lines,
+        string? couponCode,
+        CancellationToken ct)
+    {
+        var subtotal = lines.Sum(x => x.unitPrice * x.quantity);
+        var shippingFee = ShippingFeeCalculator.Calculate(address, lines);
+        var discountAmount = 0m;
+        string? appliedCouponCode = null;
+
+        if (!string.IsNullOrWhiteSpace(couponCode))
+        {
+            var userCoupon = await ResolveUserCouponAsync(
+                buyerId,
+                couponCode,
+                lines.Select(x => x.product.id).ToHashSet(),
+                ct);
+
+            var coupon = userCoupon.coupon!;
+            var percent = Math.Clamp(coupon.discountPercent ?? 0m, 0m, 100m);
+            discountAmount = Math.Round(subtotal * (percent / 100m), 2, MidpointRounding.AwayFromZero);
+            appliedCouponCode = coupon.code?.Trim().ToUpperInvariant();
+        }
+
+        var grandTotal = Math.Max(0m, subtotal + shippingFee - discountAmount);
+
+        return new OrderPricingResult(subtotal, shippingFee, discountAmount, grandTotal, appliedCouponCode);
+    }
+
+    private async Task<UserCoupon> ResolveUserCouponAsync(
+        int buyerId,
+        string couponCode,
+        HashSet<int> productIds,
+        CancellationToken ct)
+    {
+        var normalizedCode = couponCode.Trim().ToUpperInvariant();
+        var now = DateTime.UtcNow;
+
+        var userCoupon = await _db.UserCoupon
+            .Include(x => x.coupon)
+            .FirstOrDefaultAsync(x =>
+                x.userId == buyerId &&
+                x.quantity > 0 &&
+                x.coupon != null &&
+                x.coupon.code != null &&
+                x.coupon.code.ToUpper() == normalizedCode &&
+                (x.coupon.productId == null || productIds.Contains(x.coupon.productId.Value)) &&
+                (x.coupon.startDate == null || x.coupon.startDate <= now) &&
+                (x.coupon.endDate == null || x.coupon.endDate >= now), ct);
+
+        if (userCoupon == null)
+            throw new ValidationException("Coupon is invalid, expired, or not available for this user", "COUPON_INVALID");
+
+        return userCoupon;
+    }
+
+    private sealed record OrderPricingResult(
+        decimal Subtotal,
+        decimal ShippingFee,
+        decimal DiscountAmount,
+        decimal GrandTotal,
+        string? AppliedCouponCode);
 }

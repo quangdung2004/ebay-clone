@@ -11,7 +11,7 @@ export const STATUS_LABELS = {
 
 // Payment Method
 export const PAYMENT_METHOD_LABELS = {
-  COD: 'Cash on Delivery',
+  
   PAYPAL: 'PayPal',
 };
 

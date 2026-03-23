@@ -1,11 +1,13 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using CloneEbay.Application.Common.Diagnostics;
 using CloneEbay.Application.Shipping;
 using CloneEbay.Contracts.Shipping;
 using CloneEbay.Domain.Entities;
 using CloneEbay.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CloneEbay.Infrastructure.Shipping;
@@ -15,15 +17,21 @@ public sealed class ShippingWebhookService : IShippingWebhookService
     private readonly CloneEbayDbContext _db;
     private readonly IShippingService _shippingService;
     private readonly SeventeenTrackOptions _options;
+    private readonly ILogger<ShippingWebhookService> _logger;
+    private readonly ITransactionContextAccessor _txContext;
 
     public ShippingWebhookService(
         CloneEbayDbContext db,
         IShippingService shippingService,
-        IOptions<SeventeenTrackOptions> options)
+        IOptions<SeventeenTrackOptions> options,
+        ILogger<ShippingWebhookService> logger,
+        ITransactionContextAccessor txContext)
     {
         _db = db;
         _shippingService = shippingService;
         _options = options.Value;
+        _logger = logger;
+        _txContext = txContext;
     }
 
     public async Task Handle17TrackWebhookAsync(
@@ -32,6 +40,13 @@ public sealed class ShippingWebhookService : IShippingWebhookService
         SeventeenTrackWebhookRequest request,
         CancellationToken ct)
     {
+        _logger.LogInformation(
+            "17TRACK webhook received | cid={cid} | tx={tx} | eventType={eventType} | signaturePresent={hasSignature}",
+            _txContext.CorrelationId,
+            _txContext.TransactionId,
+            request.eventType,
+            !string.IsNullOrWhiteSpace(signature));
+
         var log = new ShippingWebhookEvent
         {
             provider = "17TRACK",
@@ -49,13 +64,27 @@ public sealed class ShippingWebhookService : IShippingWebhookService
         await _db.SaveChangesAsync(ct);
 
         if (!VerifySignature(rawBody, signature))
+        {
+            _logger.LogWarning(
+                "17TRACK webhook invalid signature | cid={cid} | tx={tx} | trackingNumber={trackingNumber}",
+                _txContext.CorrelationId,
+                _txContext.TransactionId,
+                log.trackingNumber);
+
             return;
+        }
 
         if (request.data == null || request.data.Count == 0)
         {
             log.isProcessed = true;
             log.processedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync(ct);
+
+            _logger.LogInformation(
+                "17TRACK webhook empty data | cid={cid} | tx={tx}",
+                _txContext.CorrelationId,
+                _txContext.TransactionId);
+
             return;
         }
 
@@ -68,17 +97,25 @@ public sealed class ShippingWebhookService : IShippingWebhookService
             var eventLocation = latest?.location;
             if (string.IsNullOrWhiteSpace(eventLocation) || string.Equals(eventLocation.Trim(), "Destination", StringComparison.OrdinalIgnoreCase))
             {
-                // Fallback: build location from components
                 var parts = new List<string?>();
                 if (!string.IsNullOrWhiteSpace(latest?.address)) parts.Add(latest.address);
                 if (!string.IsNullOrWhiteSpace(latest?.city)) parts.Add(latest.city);
                 if (!string.IsNullOrWhiteSpace(latest?.country)) parts.Add(latest.country);
-                
+
                 if (parts.Any())
                 {
                     eventLocation = string.Join(", ", parts);
                 }
             }
+
+            _logger.LogInformation(
+                "Applying tracking update | cid={cid} | tx={tx} | trackingNumber={trackingNumber} | tag={tag} | mainStatus={mainStatus} | subStatus={subStatus}",
+                _txContext.CorrelationId,
+                _txContext.TransactionId,
+                item.number,
+                item.tag,
+                item.track?.package_status?.status,
+                item.track?.package_status?.sub_status);
 
             await _shippingService.ApplyTrackingUpdateAsync(
                 trackingNumber: item.number ?? "",
@@ -95,6 +132,12 @@ public sealed class ShippingWebhookService : IShippingWebhookService
         log.isProcessed = true;
         log.processedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+
+        _logger.LogInformation(
+            "17TRACK webhook processed | cid={cid} | tx={tx} | trackingNumber={trackingNumber}",
+            _txContext.CorrelationId,
+            _txContext.TransactionId,
+            log.trackingNumber);
     }
 
     private bool VerifySignature(string rawBody, string? signature)

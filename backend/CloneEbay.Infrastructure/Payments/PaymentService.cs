@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using CloneEbay.Application.Common;
+using CloneEbay.Application.Common.Diagnostics;
 using CloneEbay.Application.Payments;
 using CloneEbay.Contracts.Orders;
 using CloneEbay.Contracts.Payments;
@@ -12,6 +13,7 @@ using CloneEbay.Infrastructure.Common.Helpers;
 using CloneEbay.Infrastructure.Common.Mappers;
 using CloneEbay.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CloneEbay.Infrastructure.Payments;
@@ -23,23 +25,36 @@ public sealed class PaymentService : IPaymentService
     private readonly PayPalOptions _options;
     private readonly ISellerHoldPolicyService _holdPolicy;
     private readonly CloneEbay.Application.Orders.IOrderEmailService _emailService;
+    private readonly ILogger<PaymentService> _logger;
+    private readonly ITransactionContextAccessor _txContext;
 
     public PaymentService(
         CloneEbayDbContext db,
         HttpClient http,
         IOptions<PayPalOptions> options,
         ISellerHoldPolicyService holdPolicy,
-        CloneEbay.Application.Orders.IOrderEmailService emailService)
+        CloneEbay.Application.Orders.IOrderEmailService emailService,
+        ILogger<PaymentService> logger,
+        ITransactionContextAccessor txContext)
     {
         _db = db;
         _http = http;
         _options = options.Value;
         _holdPolicy = holdPolicy;
         _emailService = emailService;
+        _logger = logger;
+        _txContext = txContext;
     }
 
     public async Task<CreatePayPalPaymentDto> CreatePayPalOrderAsync(int buyerId, int orderId, CancellationToken ct)
     {
+        _logger.LogInformation(
+            "CreatePayPalOrder started | cid={cid} | tx={tx} | buyerId={buyerId} | orderId={orderId}",
+            _txContext.CorrelationId,
+            _txContext.TransactionId,
+            buyerId,
+            orderId);
+
         var order = await _db.OrderTable
             .Include(x => x.Payment)
             .FirstOrDefaultAsync(x => x.id == orderId, ct);
@@ -56,7 +71,23 @@ public sealed class PaymentService : IPaymentService
         var json = await response.Content.ReadAsStringAsync(ct);
 
         if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError(
+                "PayPal create order failed | cid={cid} | tx={tx} | orderId={orderId} | status={status} | body={body}",
+                _txContext.CorrelationId,
+                _txContext.TransactionId,
+                orderId,
+                (int)response.StatusCode,
+                Truncate(json, 1200));
+
             throw new ValidationException("Failed to create PayPal order", "PAYPAL_CREATE_ORDER_FAILED");
+        }
+
+        _logger.LogInformation(
+            "PayPal create order succeeded | cid={cid} | tx={tx} | orderId={orderId}",
+            _txContext.CorrelationId,
+            _txContext.TransactionId,
+            orderId);
 
         return ParseCreateOrderResponse(json);
     }
@@ -65,6 +96,14 @@ public sealed class PaymentService : IPaymentService
     {
         if (string.IsNullOrWhiteSpace(paypalOrderId))
             throw new ValidationException("paypalOrderId is required", "PAYPAL_ORDER_ID_REQUIRED");
+
+        _logger.LogInformation(
+            "CapturePayPalOrder started | cid={cid} | tx={tx} | buyerId={buyerId} | orderId={orderId} | paypalOrderId={paypalOrderId}",
+            _txContext.CorrelationId,
+            _txContext.TransactionId,
+            buyerId,
+            orderId,
+            paypalOrderId);
 
         var order = await _db.OrderTable
             .Include(x => x.buyer)
@@ -91,11 +130,28 @@ public sealed class PaymentService : IPaymentService
         var json = await response.Content.ReadAsStringAsync(ct);
 
         if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError(
+                "PayPal capture failed | cid={cid} | tx={tx} | orderId={orderId} | paypalOrderId={paypalOrderId} | status={status} | body={body}",
+                _txContext.CorrelationId,
+                _txContext.TransactionId,
+                orderId,
+                paypalOrderId,
+                (int)response.StatusCode,
+                Truncate(json, 1200));
+
             throw new ValidationException("Failed to capture PayPal order", "PAYPAL_CAPTURE_FAILED");
+        }
 
         EnsureCaptureSucceeded(json);
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+        _logger.LogInformation(
+            "Database transaction opened | cid={cid} | tx={tx} | orderId={orderId}",
+            _txContext.CorrelationId,
+            _txContext.TransactionId,
+            orderId);
 
         payment.status = PaymentStatuses.Captured;
         payment.paidAt = DateTime.UtcNow;
@@ -106,21 +162,33 @@ public sealed class PaymentService : IPaymentService
         await _db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
-        // Send confirmation email (fire and forget or await, depending on policy)
+        _logger.LogInformation(
+            "Database transaction committed | cid={cid} | tx={tx} | orderId={orderId}",
+            _txContext.CorrelationId,
+            _txContext.TransactionId,
+            orderId);
+
         try
         {
             await _emailService.SendPaymentSuccessEmailAsync(order, ct);
+
+            _logger.LogInformation(
+                "Payment success email sent | cid={cid} | tx={tx} | orderId={orderId}",
+                _txContext.CorrelationId,
+                _txContext.TransactionId,
+                orderId);
         }
         catch (Exception ex)
         {
-            // Log but don't fail transaction if email fails
-            // Consider using a background worker for more robustness
+            _logger.LogError(ex,
+                "Payment success email failed | cid={cid} | tx={tx} | orderId={orderId}",
+                _txContext.CorrelationId,
+                _txContext.TransactionId,
+                orderId);
         }
 
         return OrderMapper.ToDetailDto(order);
     }
-
-    // ── Validation helpers ──────────────────────────────────────────
 
     private static void ValidateOrderBeforeCreate(OrderTable? order, int buyerId)
     {
@@ -176,8 +244,6 @@ public sealed class PaymentService : IPaymentService
             throw new ValidationException("Order has already been paid", "ORDER_ALREADY_PAID");
         }
     }
-
-    // ── PayPal HTTP helpers ─────────────────────────────────────────
 
     private HttpRequestMessage BuildCreateOrderRequest(OrderTable order, string accessToken)
     {
@@ -294,7 +360,16 @@ public sealed class PaymentService : IPaymentService
         var json = await response.Content.ReadAsStringAsync(ct);
 
         if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError(
+                "PayPal auth failed | cid={cid} | tx={tx} | status={status} | body={body}",
+                _txContext.CorrelationId,
+                _txContext.TransactionId,
+                (int)response.StatusCode,
+                Truncate(json, 1200));
+
             throw new ValidationException("Failed to authenticate with PayPal", "PAYPAL_AUTH_FAILED");
+        }
 
         using var doc = JsonDocument.Parse(json);
         var token = doc.RootElement.GetProperty("access_token").GetString();
@@ -304,8 +379,6 @@ public sealed class PaymentService : IPaymentService
 
         return token;
     }
-
-    // ── Settlement creation ─────────────────────────────────────────
 
     private async Task CreateSellerSettlementsAsync(OrderTable order, CancellationToken ct)
     {
@@ -344,5 +417,15 @@ public sealed class PaymentService : IPaymentService
                 releasedAt = null
             });
         }
+    }
+
+    private static string Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return value.Length <= maxLength
+            ? value
+            : value[..maxLength] + "...";
     }
 }

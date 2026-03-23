@@ -269,8 +269,6 @@ if (!app.Environment.IsProduction())
 app.UseRateLimiter();
 app.UseStaticFiles();
 
-app.MapHealthChecks("/health");
-
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -318,5 +316,6 @@ app.UseStatusCodePages(async context =>
         await response.WriteAsJsonAsync(payload);
     }
 });
+app.MapHealthChecks("/health");
 
 app.Run();

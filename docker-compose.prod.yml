@@ -101,6 +101,9 @@ services:
     image: mailhog/mailhog
     container_name: mailhog
     restart: always
+    ports:
+    - "8025:8025"   # UI
+    - "1025:1025"   # SMTP
     networks:
       - ebay-net
 

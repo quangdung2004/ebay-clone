@@ -121,11 +121,50 @@ const onSubmit = async (e) => {
     setSelectedShippingAddressId(addressId);
   };
 
-  const handleUseSelectedAddress = () => {
-    if (!selectedAddressId) {
-      showError('Please select a shipping address.');
+  const handleUseSelectedAddress = async () => {
+  if (!selectedAddressId) {
+    showError('Please select a shipping address.');
+    return;
+  }
+
+  const selected = addresses.find((item) => item.id === selectedAddressId);
+  if (!selected) {
+    showError('Selected address not found.');
+    return;
+  }
+
+  try {
+    setSaving(true);
+
+    await updateAddress(selected.id, {
+      fullName: selected.fullName || '',
+      phone: selected.phone || '',
+      street: selected.street || '',
+      city: selected.city || '',
+      state: selected.state || '',
+      country: selected.country || 'Vietnam',
+      latitude: selected.latitude ?? null,
+      longitude: selected.longitude ?? null,
+      isDefault: true,
+    });
+
+    setSelectedShippingAddressId(selected.id);
+    showSuccess('Selected address is now the default address.');
+
+    await loadAddresses();
+
+    if (redirect) {
+      navigate(redirect);
       return;
     }
+
+    navigate('/cart');
+  } catch (error) {
+    showError(parseApiError(error, 'Failed to use selected address').message);
+  } finally {
+    setSaving(false);
+  }
+
 
     setSelectedShippingAddressId(selectedAddressId);
     showSuccess('Shipping address selected.');

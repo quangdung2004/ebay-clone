@@ -55,6 +55,7 @@ const Header = () => {
                             <Link to="/sell" className="header-link sell-link">
                                 + Sell
                             </Link>
+                            <Link to="/seller/handling">Seller Handling</Link>
                             <Link to="/stores/me" className="header-link">
                                 My Store
                             </Link>

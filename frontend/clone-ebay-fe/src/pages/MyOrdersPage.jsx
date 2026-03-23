@@ -123,7 +123,7 @@ const MyOrdersPage = () => {
                     </div>
                   </div>
                   <div className="my-order-status-block">
-                    <span className="my-order-number">Order #{order.id}</span>
+                    <span className="my-order-number">{order.orderCode || `Order #${order.id}`}</span>
                     <OrderStatusBadge status={order.status} />
                   </div>
                 </div>

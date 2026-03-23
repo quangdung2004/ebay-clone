@@ -212,6 +212,9 @@ public partial class CloneEbayDbContext : DbContext
             entity.HasOne(d => d.buyer).WithMany(p => p.OrderTable)
                 .HasForeignKey(d => d.buyerId)
                 .HasConstraintName("FK__OrderTabl__buyer__4316F928");
+            entity.Property(e => e.orderCode)
+    .HasMaxLength(50)
+    .HasColumnName("orderCode");
         });
 
         modelBuilder.Entity<Payment>(entity =>

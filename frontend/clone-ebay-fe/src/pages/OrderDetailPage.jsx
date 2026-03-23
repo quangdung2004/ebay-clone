@@ -155,7 +155,7 @@ const OrderDetailPage = () => {
 
         <div className="order-detail-header">
           <div className="order-title">
-            <h1>Order #{order.id}</h1>
+           <h1>{order.orderCode || `Order #${order.id}`}</h1>
             <OrderStatusBadge status={order.status} />
           </div>
           <p className="order-date">Placed on {formatOrderDate(order.orderDate)}</p>

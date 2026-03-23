@@ -17,7 +17,6 @@ export const payOrder = async (id) => {
   return response.data?.data;
 };
 
-// ALias for clarity
 export const createPayPalOrder = payOrder;
 
 export const capturePayPalOrder = async (id, paypalOrderId) => {
@@ -46,5 +45,27 @@ export const checkoutOrder = async (payload) => {
 
 export const getOrderTracking = async (id) => {
   const response = await axiosInstance.get(`/orders/${id}/tracking`);
+  return response.data?.data;
+};
+
+export const quoteOrder = async (payload) => {
+  const response = await axiosInstance.post('/orders/quote', payload);
+  return response.data?.data;
+};
+
+export const getSellerShipments = async ({ status = '', page = 1, pageSize = 20 } = {}) => {
+  const response = await axiosInstance.get('/orders/seller/shipments', {
+    params: { status: status || undefined, page, pageSize },
+  });
+  return response.data?.data;
+};
+
+export const confirmShipmentHandling = async (shipmentId, payload) => {
+  const response = await axiosInstance.post(`/orders/shipments/${shipmentId}/handling`, payload);
+  return response.data?.data;
+};
+
+export const updateShipmentTracking = async (shipmentId, payload) => {
+  const response = await axiosInstance.post(`/orders/shipments/${shipmentId}/tracking`, payload);
   return response.data?.data;
 };

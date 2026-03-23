@@ -20,12 +20,16 @@ public sealed class OrderService : IOrderService
         public const string PendingPayment = "PENDING_PAYMENT";
         public const string Confirmed = "CONFIRMED";
         public const string Paid = "PAID";
+        public const string Processing = "PROCESSING";
+        public const string Shipped = "SHIPPED";
+        public const string Delivered = "DELIVERED";
         public const string Cancelled = "CANCELLED";
     }
 
     private static class PaymentStatuses
     {
         public const string Pending = "PENDING";
+        public const string Paid = "PAID";
         public const string Captured = "CAPTURED";
         public const string Cancelled = "CANCELLED";
     }
@@ -36,7 +40,6 @@ public sealed class OrderService : IOrderService
         public const string PayPal = "PAYPAL";
     }
 
-    public OrderService(CloneEbayDbContext db)
     private static class ShipmentStatuses
     {
         public const string Pending = "PENDING";
@@ -57,6 +60,7 @@ public sealed class OrderService : IOrderService
         _db = db;
         _shipping = shipping;
     }
+
 
     public async Task<OrderDetailDto> CreateAsync(int buyerId, CreateOrderRequest req, CancellationToken ct)
     {
@@ -115,14 +119,15 @@ public sealed class OrderService : IOrderService
             addressId = address.id,
             orderDate = now,
             status = paymentMethod == PaymentMethods.Cod
-                ? OrderStatuses.Confirmed
-                : OrderStatuses.PendingPayment,
+        ? OrderStatuses.Confirmed
+        : OrderStatuses.PendingPayment,
             itemSubtotal = itemSubtotal,
             shippingTotal = shippingTotal,
             discountTotal = discountTotal,
             taxTotal = taxTotal,
             grandTotal = grandTotal,
-            totalPrice = grandTotal
+            totalPrice = grandTotal,
+            orderCode = await GenerateUniqueOrderCodeAsync()
         };
 
         _db.OrderTable.Add(order);
@@ -220,7 +225,10 @@ public sealed class OrderService : IOrderService
         var order = await _db.OrderTable
             .Include(x => x.Payment)
             .Include(x => x.Shipment)
-                .ThenInclude(x => x.TrackingEvent)
+    .ThenInclude(x => x.originAddress)
+
+.Include(x => x.Shipment)
+    .ThenInclude(x => x.TrackingEvent)
             .FirstOrDefaultAsync(x => x.id == orderId, ct);
 
         if (order == null)
@@ -322,11 +330,7 @@ public sealed class OrderService : IOrderService
         if (string.Equals(order.status, OrderStatuses.Cancelled, StringComparison.OrdinalIgnoreCase))
             throw new ValidationException("Cancelled order cannot be updated", "ORDER_ALREADY_CANCELLED");
 
-        if (string.Equals(order.status, OrderStatuses.Paid, StringComparison.OrdinalIgnoreCase))
-            throw new ValidationException("Paid order cannot update address", "ORDER_ALREADY_PAID");
         var isPaidOrder = string.Equals(order.status, OrderStatuses.Paid, StringComparison.OrdinalIgnoreCase);
-
-   
 
         // đơn PAID chỉ được đổi 1 lần
         var paidAddressChangeCount = CountPaidAddressChanges(order);
@@ -348,6 +352,9 @@ public sealed class OrderService : IOrderService
         foreach (var shipment in order.Shipment)
         {
             if (string.Equals(shipment.status, ShipmentStatuses.Cancelled, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (string.Equals(shipment.status, ShipmentStatuses.Delivered, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             shipment.destinationAddressId = addressId;
@@ -408,11 +415,27 @@ public sealed class OrderService : IOrderService
             shipment.trackingNumber = GenerateTrackingNumber(shipment.id);
         }
 
-        if (HasPhysicalMovement(normalizedStatus) && shipment.shippedAt == null)
+        if (string.Equals(normalizedStatus, ShipmentStatuses.PickedUp, StringComparison.OrdinalIgnoreCase))
+        {
             shipment.shippedAt = eventTime;
+            shipment.estimatedShipDate = eventTime;
+            shipment.estimatedDeliveryDate = eventTime.AddDays(3);
+        }
+        else if (HasPhysicalMovement(normalizedStatus) && shipment.shippedAt == null)
+        {
+            shipment.shippedAt = eventTime;
+        }
+
 
         if (string.Equals(normalizedStatus, ShipmentStatuses.Delivered, StringComparison.OrdinalIgnoreCase))
             shipment.deliveredAt = eventTime;
+
+        if (HasPhysicalMovement(normalizedStatus)
+    && shipment.order != null
+    && !string.Equals(normalizedStatus, ShipmentStatuses.Delivered, StringComparison.OrdinalIgnoreCase))
+        {
+            shipment.order.status = OrderStatuses.Shipped;
+        }
 
         var description = string.IsNullOrWhiteSpace(req.description)
             ? BuildDefaultTrackingDescription(normalizedStatus)
@@ -434,6 +457,33 @@ public sealed class OrderService : IOrderService
             longitude = longitude,
             eventTime = eventTime
         });
+
+        if (shipment.order != null)
+        {
+            var siblingShipments = await _db.Shipment
+                .Where(x => x.orderId == shipment.orderId)
+                .ToListAsync(ct);
+
+            if (siblingShipments.Count > 0 &&
+                siblingShipments.All(x => string.Equals(x.status, ShipmentStatuses.Delivered, StringComparison.OrdinalIgnoreCase)))
+            {
+                shipment.order.status = OrderStatuses.Delivered;
+            }
+            else if (siblingShipments.Any(x =>
+                string.Equals(x.status, ShipmentStatuses.PickedUp, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(x.status, ShipmentStatuses.InTransit, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(x.status, ShipmentStatuses.OutForDelivery, StringComparison.OrdinalIgnoreCase)))
+            {
+                shipment.order.status = OrderStatuses.Shipped;
+            }
+            else if (siblingShipments.Any(x => string.Equals(x.status, ShipmentStatuses.Pending, StringComparison.OrdinalIgnoreCase)))
+            {
+                if (string.Equals(shipment.order.status, OrderStatuses.Paid, StringComparison.OrdinalIgnoreCase))
+                {
+                    shipment.order.status = OrderStatuses.Processing;
+                }
+            }
+        }
 
         await _db.SaveChangesAsync(ct);
 
@@ -480,8 +530,6 @@ public sealed class OrderService : IOrderService
         payment.status = PaymentStatuses.Paid;
         payment.paidAt = paidAt;
         order.status = OrderStatuses.Paid;
-
-        InitializeShipmentSimulation(order, paidAt);
 
         await _db.SaveChangesAsync(ct);
         return await GetByIdAsync(buyerId, orderId, ct);
@@ -643,11 +691,13 @@ public sealed class OrderService : IOrderService
         if (string.IsNullOrWhiteSpace(method))
             throw new ValidationException("Payment method is required", "PAYMENT_METHOD_REQUIRED");
 
-        return method.Trim().ToUpperInvariant();
-    }
+        var normalized = method.Trim().ToUpperInvariant();
 
         if (normalized is not (PaymentMethods.Cod or PaymentMethods.PayPal))
             throw new ValidationException("Payment method must be COD or PAYPAL", "PAYMENT_METHOD_INVALID");
+
+        return normalized;
+    }
     private static string NormalizeShipmentStatus(string? status)
     {
         if (string.IsNullOrWhiteSpace(status))
@@ -766,6 +816,7 @@ public sealed class OrderService : IOrderService
 
         return new OrderDetailDto(
             id: order.id,
+            orderCode: order.orderCode,
             buyerId: order.buyerId,
             buyerName: order.buyer?.username,
             orderDate: order.orderDate,
@@ -837,11 +888,24 @@ public sealed class OrderService : IOrderService
             estimatedDeliveryDate: shipment.estimatedDeliveryDate,
             shippedAt: shipment.shippedAt,
             deliveredAt: shipment.deliveredAt,
+            originAddress: shipment.originAddress == null ? null : new AddressSummaryDto(
+                shipment.originAddress.id,
+                shipment.originAddress.fullName,
+                shipment.originAddress.phone,
+                shipment.originAddress.street,
+                shipment.originAddress.city,
+                shipment.originAddress.state,
+                shipment.originAddress.country,
+                shipment.originAddress.latitude,
+                shipment.originAddress.longitude,
+                shipment.originAddress.isDefault
+            ),
             events: shipment.TrackingEvent
                 .OrderBy(x => x.eventTime ?? DateTime.MinValue)
                 .ThenBy(x => x.id)
                 .Select(MapTrackingEvent)
-                .ToList());
+                .ToList()
+        );
     }
 
     private static TrackingEventDto MapTrackingEvent(TrackingEvent trackingEvent)
@@ -931,8 +995,11 @@ public sealed class OrderService : IOrderService
     {
         var changed = false;
 
-        if (!string.Equals(order.status, OrderStatuses.Paid, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(order.status, OrderStatuses.Shipped, StringComparison.OrdinalIgnoreCase)
+    && !string.Equals(order.status, OrderStatuses.Delivered, StringComparison.OrdinalIgnoreCase))
+        {
             return false;
+        }
 
         foreach (var shipment in order.Shipment)
         {
@@ -1126,5 +1193,182 @@ public sealed class OrderService : IOrderService
             taxTotal: taxTotal,
             grandTotal: grandTotal,
             shipments: shipments);
+    }
+    private static string GenerateOrderCode()
+    {
+        var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+        var random = Guid.NewGuid().ToString("N")[..6].ToUpper();
+        return $"ORD-{timestamp}-{random}";
+    }
+
+    private async Task<string> GenerateUniqueOrderCodeAsync()
+    {
+        for (var i = 0; i < 10; i++)
+        {
+            var code = GenerateOrderCode();
+            var exists = await _db.OrderTable.AnyAsync(x => x.orderCode == code);
+            if (!exists) return code;
+        }
+
+        return $"ORD-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..10].ToUpper()}";
+    }
+
+    public async Task<PagedResponse<SellerShipmentSummaryDto>> GetSellerShipmentsAsync(
+    int sellerId,
+    string? status,
+    int page,
+    int pageSize,
+    CancellationToken ct)
+    {
+        if (page <= 0) page = 1;
+        if (pageSize <= 0) pageSize = 20;
+
+        var query = _db.Shipment
+            .AsNoTracking()
+            .Where(x => x.sellerId == sellerId)
+            .Include(x => x.order)
+                .ThenInclude(o => o!.buyer)
+            .Include(x => x.destinationAddress)
+            .Include(x => x.ShipmentItem)
+                .ThenInclude(si => si.orderItem)
+                    .ThenInclude(oi => oi!.product)
+                        .ThenInclude(p => p!.seller)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            var normalizedStatus = status.Trim().ToUpperInvariant();
+            query = query.Where(x => x.status != null && x.status.ToUpper() == normalizedStatus);
+        }
+
+        var total = await query.CountAsync(ct);
+
+        var shipments = await query
+            .OrderByDescending(x => x.createdAt ?? DateTime.MinValue)
+            .ThenByDescending(x => x.id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        var items = shipments.Select(shipment =>
+        {
+            var orderItems = shipment.ShipmentItem
+                .Where(x => x.orderItem != null)
+                .Select(x => MapItem(x.orderItem!))
+                .ToList();
+
+            var destinationLabel = shipment.destinationAddress == null
+                ? null
+                : string.Join(", ", new[]
+                {
+                shipment.destinationAddress.fullName,
+                shipment.destinationAddress.street,
+                shipment.destinationAddress.city,
+                shipment.destinationAddress.state,
+                shipment.destinationAddress.country
+                }.Where(s => !string.IsNullOrWhiteSpace(s)));
+
+            return new SellerShipmentSummaryDto(
+                shipmentId: shipment.id,
+                orderId: shipment.orderId,
+                orderCode: shipment.order?.orderCode,
+                orderStatus: shipment.order?.status,
+                shipmentStatus: shipment.status,
+                trackingNumber: shipment.trackingNumber,
+                orderDate: shipment.order?.orderDate,
+                shippedAt: shipment.shippedAt,
+                estimatedDeliveryDate: shipment.estimatedDeliveryDate,
+                buyerName: shipment.order?.buyer?.username,
+                destinationLabel: destinationLabel,
+                shippingFee: shipment.shippingCost ?? 0m,
+                totalItems: orderItems.Sum(x => x.quantity),
+                items: orderItems
+            );
+        }).ToList();
+
+        return new PagedResponse<SellerShipmentSummaryDto>(
+            items: items,
+            page: page,
+            pageSize: pageSize,
+            total: total
+        );
+    }
+
+    public async Task<ShipmentTrackingDto> ConfirmShipmentHandlingAsync(
+    int sellerId,
+    int shipmentId,
+    ConfirmShipmentHandlingRequest req,
+    CancellationToken ct)
+    {
+        var shipment = await _db.Shipment
+            .Include(x => x.order)
+            .Include(x => x.TrackingEvent)
+            .FirstOrDefaultAsync(x => x.id == shipmentId, ct);
+
+        if (shipment == null)
+            throw new NotFoundException("Shipment not found", "SHIPMENT_NOT_FOUND");
+
+        if (shipment.sellerId != sellerId)
+            throw new ForbiddenException("You are not allowed to confirm handling for this shipment", "SHIPMENT_FORBIDDEN");
+
+        if (shipment.order == null)
+            throw new NotFoundException("Order not found for shipment", "ORDER_NOT_FOUND");
+
+        if (string.Equals(shipment.order.status, OrderStatuses.Cancelled, StringComparison.OrdinalIgnoreCase))
+            throw new ValidationException("Cancelled order cannot be handled", "ORDER_ALREADY_CANCELLED");
+
+        if (!string.Equals(shipment.order.status, OrderStatuses.Paid, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(shipment.order.status, OrderStatuses.Processing, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ValidationException("Only paid or processing order can enter seller handling", "ORDER_INVALID_STATUS_FOR_HANDLING");
+        }
+
+        if (!string.Equals(shipment.status, ShipmentStatuses.Pending, StringComparison.OrdinalIgnoreCase))
+            throw new ValidationException("Only pending shipment can be confirmed for handling", "SHIPMENT_INVALID_STATUS_FOR_HANDLING");
+
+        var handlingAt = req.handlingAt?.ToUniversalTime() ?? DateTime.UtcNow;
+
+        if (string.IsNullOrWhiteSpace(shipment.trackingNumber))
+        {
+            shipment.trackingNumber = string.IsNullOrWhiteSpace(req.trackingNumber)
+                ? GenerateTrackingNumber(shipment.id)
+                : req.trackingNumber.Trim();
+        }
+        else if (!string.IsNullOrWhiteSpace(req.trackingNumber))
+        {
+            shipment.trackingNumber = req.trackingNumber.Trim();
+        }
+
+        shipment.estimatedShipDate = req.estimatedShipDate?.ToUniversalTime() ?? handlingAt;
+        shipment.estimatedDeliveryDate = req.estimatedDeliveryDate?.ToUniversalTime()
+            ?? shipment.estimatedShipDate?.AddDays(3);
+
+        shipment.status = ShipmentStatuses.Pending;
+        shipment.order.status = OrderStatuses.Processing;
+
+        var description = string.IsNullOrWhiteSpace(req.note)
+            ? "Seller confirmed handling and is preparing the package"
+            : req.note.Trim();
+
+        _db.TrackingEvent.Add(new TrackingEvent
+        {
+            shipmentId = shipment.id,
+            statusCode = ShipmentStatuses.Pending,
+            description = description,
+            location = "Seller handling",
+            latitude = null,
+            longitude = null,
+            eventTime = handlingAt
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        shipment = await _db.Shipment
+            .AsNoTracking()
+            .Include(x => x.originAddress)
+            .Include(x => x.TrackingEvent)
+            .FirstAsync(x => x.id == shipmentId, ct);
+
+        return MapShipmentTracking(shipment);
     }
 }

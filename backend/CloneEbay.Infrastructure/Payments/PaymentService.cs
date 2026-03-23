@@ -25,6 +25,7 @@ public sealed class PaymentService : IPaymentService
     {
         public const string PendingPayment = "PENDING_PAYMENT";
         public const string Paid = "PAID";
+        public const string Processing = "PROCESSING";
         public const string Cancelled = "CANCELLED";
     }
 
@@ -36,6 +37,7 @@ public sealed class PaymentService : IPaymentService
     private static class PaymentStatuses
     {
         public const string Pending = "PENDING";
+        public const string Paid = "PAID";
         public const string Captured = "CAPTURED";
         public const string Cancelled = "CANCELLED";
     }
@@ -278,54 +280,6 @@ public sealed class PaymentService : IPaymentService
 
     private static void EnsureCaptureSucceeded(string json)
     {
-        if (string.IsNullOrWhiteSpace(paypalOrderId))
-            throw new ValidationException("paypalOrderId is required", "PAYPAL_ORDER_ID_REQUIRED");
-        var order = await _db.OrderTable
-            .Include(x => x.buyer)
-            .Include(x => x.address)
-            .Include(x => x.OrderItem).ThenInclude(x => x.product).ThenInclude(x => x!.seller)
-            .Include(x => x.Payment)
-            .Include(x => x.ShippingInfo)
-            .Include(x => x.Shipment)
-                .ThenInclude(x => x.TrackingEvent)
-            .FirstOrDefaultAsync(x => x.id == orderId, ct);
-
-        if (order == null)
-            throw new NotFoundException("Order not found", "ORDER_NOT_FOUND");
-
-        if (order.buyerId != buyerId)
-            throw new ForbiddenException("You are not allowed to pay this order", "ORDER_FORBIDDEN");
-
-        if (string.Equals(order.status, OrderStatuses.Cancelled, StringComparison.OrdinalIgnoreCase))
-            throw new ValidationException("Cancelled order cannot be paid", "ORDER_ALREADY_CANCELLED");
-
-        var payment = order.Payment.OrderByDescending(x => x.id).FirstOrDefault();
-
-        if (payment == null)
-            throw new NotFoundException("Payment record not found", "PAYMENT_NOT_FOUND");
-
-        if (!string.Equals(payment.method, "PAYPAL", StringComparison.OrdinalIgnoreCase))
-            throw new ValidationException("This order does not use PayPal", "PAYMENT_METHOD_NOT_PAYPAL");
-
-        if (string.Equals(payment.status, PaymentStatuses.Paid, StringComparison.OrdinalIgnoreCase))
-            return MapOrderDetail(order);
-
-        var accessToken = await GetAccessTokenAsync(ct);
-
-        using var request = new HttpRequestMessage(
-            HttpMethod.Post,
-            $"{_options.BaseUrl}/v2/checkout/orders/{paypalOrderId}/capture");
-
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        request.Headers.Add("Prefer", "return=representation");
-        request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
-
-        using var response = await _http.SendAsync(request, ct);
-        var json = await response.Content.ReadAsStringAsync(ct);
-
-        if (!response.IsSuccessStatusCode)
-            throw new ValidationException("Failed to capture PayPal order", "PAYPAL_CAPTURE_FAILED");
-
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
@@ -345,15 +299,6 @@ public sealed class PaymentService : IPaymentService
     private async Task CreateSellerSettlementsAsync(OrderTable order, CancellationToken ct)
     {
         var heldAt = DateTime.UtcNow;
-        var paidAt = DateTime.UtcNow;
-
-        payment.status = PaymentStatuses.Paid;
-        payment.paidAt = paidAt;
-        order.status = OrderStatuses.Paid;
-
-        InitializeShipmentSimulation(order, paidAt);
-
-        await _db.SaveChangesAsync(ct);
 
         foreach (var item in order.OrderItem)
         {
@@ -469,17 +414,18 @@ public sealed class PaymentService : IPaymentService
     private static OrderDetailDto MapOrderDetail(OrderTable order)
     {
         return new OrderDetailDto(
-            id: order.id,
-            buyerId: order.buyerId,
-            buyerName: order.buyer?.username,
-            orderDate: order.orderDate,
-            itemSubtotal: order.itemSubtotal ?? 0m,
-            shippingTotal: order.shippingTotal ?? 0m,
-            discountTotal: order.discountTotal ?? 0m,
-            taxTotal: order.taxTotal ?? 0m,
-            grandTotal: order.grandTotal ?? (order.totalPrice ?? 0m),
-            totalPrice: order.totalPrice ?? 0m,
-            status: order.status,
+    id: order.id,
+    orderCode: order.orderCode,
+    buyerId: order.buyerId,
+    buyerName: order.buyer?.username,
+    orderDate: order.orderDate,
+    itemSubtotal: order.itemSubtotal ?? 0m,
+    shippingTotal: order.shippingTotal ?? 0m,
+    discountTotal: order.discountTotal ?? 0m,
+    taxTotal: order.taxTotal ?? 0m,
+    grandTotal: order.grandTotal ?? (order.totalPrice ?? 0m),
+    totalPrice: order.totalPrice ?? 0m,
+    status: order.status,
             address: order.address == null ? null : new AddressSummaryDto(
                 order.address.id,
                 order.address.fullName,

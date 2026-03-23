@@ -69,4 +69,25 @@ public class OrdersController : BaseController
         [FromBody] UpdateShipmentTrackingRequest req,
         CancellationToken ct)
         => Success(await _svc.UpdateShipmentTrackingAsync(CurrentUserId, shipmentId, req, ct), "Update shipment tracking successfully", "SHIPMENT_TRACKING_UPDATE_SUCCESS");
+
+    [HttpPost("shipments/{shipmentId:int}/handling")]
+    public async Task<ApiResponse<ShipmentTrackingDto>> ConfirmShipmentHandling(
+    [FromRoute] int shipmentId,
+    [FromBody] ConfirmShipmentHandlingRequest req,
+    CancellationToken ct)
+    => Success(
+        await _svc.ConfirmShipmentHandlingAsync(CurrentUserId, shipmentId, req, ct),
+        "Confirm shipment handling successfully",
+        "SHIPMENT_HANDLING_CONFIRM_SUCCESS");
+
+    [HttpGet("seller/shipments")]
+    public async Task<ApiResponse<PagedResponse<SellerShipmentSummaryDto>>> GetSellerShipments(
+    [FromQuery] string? status,
+    [FromQuery] int page = 1,
+    [FromQuery] int pageSize = 20,
+    CancellationToken ct = default)
+    => Success(
+        await _svc.GetSellerShipmentsAsync(CurrentUserId, status, page, pageSize, ct),
+        "Get seller shipments successfully",
+        "SELLER_SHIPMENTS_GET_SUCCESS");
 }

@@ -2,6 +2,9 @@ export const STATUS_LABELS = {
   PENDING_PAYMENT: 'Awaiting Payment',
   CONFIRMED: 'Confirmed',
   PAID: 'Paid',
+  PROCESSING: 'Seller Preparing Package',
+  SHIPPED: 'Shipped',
+  DELIVERED: 'Delivered',
   CANCELLED: 'Cancelled',
 };
 
@@ -31,16 +34,28 @@ export function getStatusColorClass(status) {
     case 'AVAILABLE':
     case 'PAID_OUT':
       return 'status-paid';
+
+    case 'PROCESSING':
+    case 'CONFIRMED':
+      return 'status-confirmed';
+
+    case 'SHIPPED':
+      return 'status-on-hold';
+
+    case 'DELIVERED':
+      return 'status-paid';
+
     case 'PENDING_PAYMENT':
     case 'PENDING':
       return 'status-pending';
+
     case 'ON_HOLD':
       return 'status-on-hold';
-    case 'CONFIRMED':
-      return 'status-confirmed';
+
     case 'CANCELLED':
     case 'REFUNDED':
       return 'status-cancelled';
+
     default:
       return 'status-default';
   }

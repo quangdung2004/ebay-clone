@@ -24,6 +24,7 @@ import CheckoutPage from './pages/CheckoutPage';
 import CartPage from './pages/CartPage';
 import AddressesPage from './pages/AddressesPage';
 import SellerWalletPage from './pages/SellerWalletPage';
+import SellerHandlingPage from './pages/SellerHandlingPage';
 import './App.css';
 
 function App() {
@@ -70,7 +71,14 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
-
+                <Route
+                  path="/seller/handling"
+                  element={
+                    <ProtectedRoute>
+                      <SellerHandlingPage />
+                    </ProtectedRoute>
+                  }
+                />
                 <Route
                   path="/stores/create"
                   element={

@@ -62,6 +62,7 @@ public record ShipmentTrackingDto(
     DateTime? estimatedDeliveryDate,
     DateTime? shippedAt,
     DateTime? deliveredAt,
+    AddressSummaryDto? originAddress,
     IReadOnlyList<TrackingEventDto> events
 );
 
@@ -108,6 +109,7 @@ public record OrderSummaryDto(
 
 public record OrderDetailDto(
     int id,
+    string? orderCode,
     int? buyerId,
     string? buyerName,
     DateTime? orderDate,
@@ -174,6 +176,20 @@ public record UpdateShipmentTrackingRequest(
     DateTime? eventTime
 );
 
+public record ConfirmShipmentHandlingRequest(
+    [param: StringLength(100, ErrorMessage = ValidationMessages.MaxLength)]
+    string? trackingNumber,
+
+    [param: StringLength(255, ErrorMessage = ValidationMessages.MaxLength)]
+    string? note,
+
+    DateTime? handlingAt,
+
+    DateTime? estimatedShipDate,
+
+    DateTime? estimatedDeliveryDate
+);
+
 public record QuoteOrderRequest(
     int? addressId,
 
@@ -188,4 +204,21 @@ public record QuoteOrderDto(
     decimal taxTotal,
     decimal grandTotal,
     IReadOnlyList<ShipmentSummaryDto> shipments
+);
+
+public record SellerShipmentSummaryDto(
+    int shipmentId,
+    int orderId,
+    string? orderCode,
+    string? orderStatus,
+    string? shipmentStatus,
+    string? trackingNumber,
+    DateTime? orderDate,
+    DateTime? shippedAt,
+    DateTime? estimatedDeliveryDate,
+    string? buyerName,
+    string? destinationLabel,
+    decimal shippingFee,
+    int totalItems,
+    IReadOnlyList<OrderItemSummaryDto> items
 );

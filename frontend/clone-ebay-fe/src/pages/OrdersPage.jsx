@@ -198,7 +198,9 @@ const OrdersPage = () => {
                       <span className={`order-status-badge ${getStatusClass(order.status)}`}>
                         {STATUS_LABELS[order.status] || order.status}
                       </span>
-                      <span className="order-number">Order #{order.id}</span>
+                      <span className="order-number">
+  {order.orderCode || `Order #${order.id}`}
+</span>
                     </div>
                   </div>
 

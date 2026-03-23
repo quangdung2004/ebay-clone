@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import goongjs from '@goongmaps/goong-js';
 import {
-  DEFAULT_ORIGIN_ADDRESS,
   calculateShippingEstimate,
   formatAddressLabel,
   formatCoordinates,
@@ -21,9 +20,16 @@ const mapContainerStyle = {
   minHeight: '360px',
 };
 
+const FALLBACK_MAP_CENTER = {
+  lat: 10.7769,
+  lng: 106.7009,
+};
+
 const GOONG_MAPTILES_KEY = import.meta.env.VITE_GOONG_MAPTILES_KEY;
 const GOONG_MAP_STYLE =
   import.meta.env.VITE_GOONG_MAP_STYLE || 'https://tiles.goong.io/assets/goong_map_web.json';
+
+const normalizeStatus = (value) => String(value || '').trim().toUpperCase();
 
 const formatEventTime = (value) => {
   if (!value) return '--';
@@ -56,9 +62,10 @@ const GoongTrackingMap = ({
   origin,
   destination,
   coordinates = [],
-  isPaidOrder,
+  isMovingShipment,
   simulationPercent,
   currentLocationLabel,
+  isProcessingOrder,
 }) => {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -156,19 +163,19 @@ const GoongTrackingMap = ({
       destinationMarkerRef.current?.remove();
 
       if (origin?.lat != null && origin?.lng != null) {
+        let popupLabel = currentLocationLabel || 'Current shipment location';
+
+        if (isProcessingOrder) {
+          popupLabel = 'Seller is preparing the package';
+        } else if (isMovingShipment) {
+          popupLabel = `Shipment is moving (${simulationPercent}%)`;
+        }
+
         originMarkerRef.current = new goongjs.Marker({
           element: createMarkerElement('origin'),
         })
           .setLngLat([origin.lng, origin.lat])
-          .setPopup(
-            new goongjs.Popup({ offset: 16 }).setHTML(
-              `<div>${
-                isPaidOrder
-                  ? `Order is moving (${simulationPercent}%)`
-                  : currentLocationLabel || 'Current order location'
-              }</div>`
-            )
-          )
+          .setPopup(new goongjs.Popup({ offset: 16 }).setHTML(`<div>${popupLabel}</div>`))
           .addTo(map);
       }
 
@@ -201,7 +208,7 @@ const GoongTrackingMap = ({
     } else {
       map.once('load', renderMapData);
     }
-  }, [origin, destination, coordinates, isPaidOrder, simulationPercent, currentLocationLabel]);
+  }, [origin, destination, coordinates, isMovingShipment, simulationPercent, currentLocationLabel, isProcessingOrder]);
 
   if (!GOONG_MAPTILES_KEY) {
     return (
@@ -243,23 +250,46 @@ const OrderTrackingPanel = ({ order, tracking, loading, error, onEstimatedShippi
   );
 
   const destinationLabel = useMemo(() => formatAddressLabel(order?.address), [order?.address]);
-  const isPaidOrder = String(order?.status || '').toUpperCase() === 'PAID';
+  const originAddressLabel = useMemo(
+    () => formatAddressLabel(selectedShipment?.originAddress),
+    [selectedShipment?.originAddress]
+  );
+
+  const orderStatus = normalizeStatus(order?.status);
+  const shipmentStatus = normalizeStatus(selectedShipment?.status);
+
+  const isProcessingOrder = orderStatus === 'PROCESSING';
+  const isDeliveredOrder = orderStatus === 'DELIVERED';
+
+  const isShipmentMoving =
+    shipmentStatus === 'PICKED_UP' ||
+    shipmentStatus === 'IN_TRANSIT' ||
+    shipmentStatus === 'OUT_FOR_DELIVERY';
+
+  const shouldSimulateMovement =
+    isShipmentMoving || shipmentStatus === 'DELIVERED' || isDeliveredOrder;
 
   const trackingPoint = useMemo(() => getLatestTrackingPoint(selectedShipment), [selectedShipment]);
 
   const currentLocationLabel = useMemo(() => {
     if (trackingPoint?.label) return trackingPoint.label;
-    return getLatestTrackingLocation(selectedShipment) || DEFAULT_ORIGIN_ADDRESS;
-  }, [selectedShipment, trackingPoint]);
+    if (originAddressLabel) return originAddressLabel;
+    return getLatestTrackingLocation(selectedShipment) || '';
+  }, [selectedShipment, trackingPoint, originAddressLabel]);
 
   useEffect(() => {
     let isCancelled = false;
 
     const loadRoute = async () => {
-      if (!selectedShipment || !destinationLabel) {
+      const originSource =
+        trackingPoint ||
+        selectedShipment?.originAddress ||
+        getLatestTrackingLocation(selectedShipment);
+
+      if (!originSource || !destinationLabel) {
         setRouteState({
           loading: false,
-          error: 'A shipping address is required to display the map.',
+          error: 'Origin or destination is missing to display the delivery route.',
           origin: null,
           destination: null,
           route: null,
@@ -271,7 +301,7 @@ const OrderTrackingPanel = ({ order, tracking, loading, error, onEstimatedShippi
         setRouteState((prev) => ({ ...prev, loading: true, error: '' }));
 
         const [origin, destination] = await Promise.all([
-          resolvePoint(trackingPoint || currentLocationLabel, currentLocationLabel),
+          resolvePoint(originSource, currentLocationLabel || originAddressLabel || 'Origin'),
           resolvePoint(order?.address || destinationLabel, destinationLabel),
         ]);
 
@@ -304,10 +334,10 @@ const OrderTrackingPanel = ({ order, tracking, loading, error, onEstimatedShippi
     return () => {
       isCancelled = true;
     };
-  }, [currentLocationLabel, destinationLabel, order?.address, selectedShipment, trackingPoint]);
+  }, [currentLocationLabel, destinationLabel, order?.address, selectedShipment, trackingPoint, originAddressLabel]);
 
   useEffect(() => {
-    if (!isPaidOrder || !selectedShipment?.shippedAt || !selectedShipment?.estimatedDeliveryDate) {
+    if (!shouldSimulateMovement || !selectedShipment?.shippedAt || !selectedShipment?.estimatedDeliveryDate) {
       return;
     }
 
@@ -316,10 +346,10 @@ const OrderTrackingPanel = ({ order, tracking, loading, error, onEstimatedShippi
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [isPaidOrder, selectedShipment?.shippedAt, selectedShipment?.estimatedDeliveryDate]);
+  }, [shouldSimulateMovement, selectedShipment?.shippedAt, selectedShipment?.estimatedDeliveryDate]);
 
   const simulationProgress = useMemo(() => {
-    if (!isPaidOrder || !selectedShipment?.shippedAt) return 0;
+    if (!shouldSimulateMovement || !selectedShipment?.shippedAt) return 0;
 
     const start = new Date(selectedShipment.shippedAt).getTime();
     const end = selectedShipment?.estimatedDeliveryDate
@@ -327,20 +357,27 @@ const OrderTrackingPanel = ({ order, tracking, loading, error, onEstimatedShippi
       : start + 180000;
 
     if (Number.isNaN(start) || Number.isNaN(end) || end <= start) {
-      return 0;
+      return shipmentStatus === 'DELIVERED' || isDeliveredOrder ? 1 : 0;
     }
 
     const progress = (now - start) / (end - start);
     return Math.min(Math.max(progress, 0), 1);
-  }, [isPaidOrder, now, selectedShipment?.shippedAt, selectedShipment?.estimatedDeliveryDate]);
+  }, [
+    shouldSimulateMovement,
+    now,
+    selectedShipment?.shippedAt,
+    selectedShipment?.estimatedDeliveryDate,
+    shipmentStatus,
+    isDeliveredOrder,
+  ]);
 
   const simulatedRouteState = useMemo(() => {
-    if (!isPaidOrder || !routeState.route?.coordinates?.length) {
+    if (!shouldSimulateMovement || !routeState.route?.coordinates?.length) {
       return null;
     }
 
     return interpolateRoutePosition(routeState.route.coordinates, simulationProgress);
-  }, [isPaidOrder, routeState.route, simulationProgress]);
+  }, [shouldSimulateMovement, routeState.route, simulationProgress]);
 
   const displayOrigin = simulatedRouteState?.point || routeState.origin;
   const displayRouteCoordinates =
@@ -348,12 +385,37 @@ const OrderTrackingPanel = ({ order, tracking, loading, error, onEstimatedShippi
   const simulationPercent = Math.round(simulationProgress * 100);
 
   const displayShipmentStatus = useMemo(() => {
-    if (!isPaidOrder) return selectedShipment?.status || 'PENDING';
-    if (simulationProgress >= 1) return 'DELIVERED';
-    if (simulationProgress >= 0.8) return 'OUT_FOR_DELIVERY';
-    if (simulationProgress >= 0.2) return 'IN_TRANSIT';
+    if (isProcessingOrder) return 'PROCESSING';
+
+    if (!shouldSimulateMovement) {
+      return selectedShipment?.status || 'PENDING';
+    }
+
+    if (shipmentStatus === 'DELIVERED' || isDeliveredOrder || simulationProgress >= 1) {
+      return 'DELIVERED';
+    }
+
+    if (shipmentStatus === 'OUT_FOR_DELIVERY' || simulationProgress >= 0.8) {
+      return 'OUT_FOR_DELIVERY';
+    }
+
+    if (shipmentStatus === 'IN_TRANSIT' || simulationProgress >= 0.2) {
+      return 'IN_TRANSIT';
+    }
+
+    if (shipmentStatus === 'PICKED_UP') {
+      return 'PICKED_UP';
+    }
+
     return 'PICKED_UP';
-  }, [selectedShipment?.status, isPaidOrder, simulationProgress]);
+  }, [
+    isProcessingOrder,
+    shouldSimulateMovement,
+    selectedShipment?.status,
+    shipmentStatus,
+    isDeliveredOrder,
+    simulationProgress,
+  ]);
 
   const estimatedShippingFee = useMemo(() => {
     return routeState.route
@@ -393,7 +455,7 @@ const OrderTrackingPanel = ({ order, tracking, loading, error, onEstimatedShippi
     );
   }
 
-  const mapCenter = displayOrigin || routeState.destination || { lat: 10.7769, lng: 106.7009 };
+  const mapCenter = displayOrigin || routeState.destination || FALLBACK_MAP_CENTER;
 
   return (
     <section className="order-card-panel tracking-panel">
@@ -401,7 +463,7 @@ const OrderTrackingPanel = ({ order, tracking, loading, error, onEstimatedShippi
         <div>
           <h3 className="order-section-title tracking-title">Order tracking</h3>
           <p className="tracking-subtitle">
-            Overall status: <strong>{tracking?.overallShipmentStatus || 'PENDING'}</strong>
+            Overall status: <strong>{tracking?.overallShipmentStatus || orderStatus || 'PENDING'}</strong>
           </p>
         </div>
         <ShipmentStatusPill status={displayShipmentStatus} />
@@ -424,14 +486,23 @@ const OrderTrackingPanel = ({ order, tracking, loading, error, onEstimatedShippi
 
       <div className="tracking-summary-grid">
         <div className="tracking-summary-card">
+          <span className="tracking-summary-label">Order code</span>
+          <strong>{order?.orderCode || '--'}</strong>
+        </div>
+
+        <div className="tracking-summary-card">
           <span className="tracking-summary-label">Tracking number</span>
-          <strong>{selectedShipment.trackingNumber || '--'}</strong>
+          <strong>{selectedShipment?.trackingNumber || '--'}</strong>
         </div>
 
         <div className="tracking-summary-card">
           <span className="tracking-summary-label">Current location</span>
           <strong>
-            {isPaidOrder ? `In transit (${simulationPercent}%)` : currentLocationLabel || '--'}
+            {isProcessingOrder
+              ? 'Seller facility'
+              : shouldSimulateMovement
+              ? `In transit (${simulationPercent}%)`
+              : currentLocationLabel || '--'}
           </strong>
           {displayOrigin && <small>{formatCoordinates(displayOrigin.lat, displayOrigin.lng)}</small>}
         </div>
@@ -454,7 +525,7 @@ const OrderTrackingPanel = ({ order, tracking, loading, error, onEstimatedShippi
           <strong>{routeState.route ? formatDuration(routeState.route.durationMinutes) : '--'}</strong>
         </div>
 
-        {isPaidOrder && (
+        {shouldSimulateMovement && (
           <div className="tracking-summary-card highlight">
             <span className="tracking-summary-label">Simulation progress</span>
             <strong>{simulationPercent}%</strong>
@@ -486,16 +557,19 @@ const OrderTrackingPanel = ({ order, tracking, loading, error, onEstimatedShippi
             origin={displayOrigin}
             destination={routeState.destination}
             coordinates={displayRouteCoordinates}
-            isPaidOrder={isPaidOrder}
+            isMovingShipment={shouldSimulateMovement}
             simulationPercent={simulationPercent}
             currentLocationLabel={currentLocationLabel}
+            isProcessingOrder={isProcessingOrder}
           />
         )}
       </div>
 
       <div className="tracking-route-note">
-        {isPaidOrder
-          ? `This order is being simulated based on backend data. Current progress: ${simulationPercent}%.`
+        {isProcessingOrder
+          ? 'Seller is currently preparing the package.'
+          : shouldSimulateMovement
+          ? `This shipment is moving based on backend tracking data. Current progress: ${simulationPercent}%.`
           : 'This map uses Goong to display the delivery route.'}
       </div>
 

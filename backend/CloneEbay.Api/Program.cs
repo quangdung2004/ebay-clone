@@ -316,6 +316,7 @@ app.UseStatusCodePages(async context =>
         await response.WriteAsJsonAsync(payload);
     }
 });
+app.MapGet("/ping", () => Results.Ok(new { message = "pong" }));
 app.MapHealthChecks("/health");
 
 app.Run();

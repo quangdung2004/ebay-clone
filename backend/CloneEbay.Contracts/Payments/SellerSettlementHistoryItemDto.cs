@@ -1,4 +1,4 @@
-﻿namespace CloneEbay.Contracts.Payments;
+namespace CloneEbay.Contracts.Payments;
 
 public sealed record SellerSettlementHistoryItemDto(
     int id,
@@ -11,7 +11,7 @@ public sealed record SellerSettlementHistoryItemDto(
     decimal netAmount,
     string status,
     string? holdReason,
-    DateTime heldAt,
+    DateTime? heldAt,
     DateTime? availableAt,
     DateTime? releasedAt
 );

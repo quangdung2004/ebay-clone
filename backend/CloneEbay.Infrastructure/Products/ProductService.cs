@@ -1,9 +1,13 @@
-﻿using AutoMapper;
+using AutoMapper;
+using CloneEbay.Application.Common;
 using CloneEbay.Application.Products;
 using CloneEbay.Contracts.Products;
 using CloneEbay.Domain.Entities;
 using CloneEbay.Domain.Exceptions;
+using CloneEbay.Infrastructure.Common.Guards;
+using CloneEbay.Infrastructure.Common.Helpers;
 using CloneEbay.Infrastructure.Persistence;
+using CloneEbay.Infrastructure.Products;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +19,20 @@ public sealed class ProductService : IProductService
     private readonly CloneEbayDbContext _db;
     private readonly IWebHostEnvironment _env;
     private readonly IMapper _mapper;
+
+    private static readonly HashSet<string> AllowedImageExtensions =
+        new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp" };
+
+    private static readonly HashSet<string> AllowedManualStatuses = new()
+    {
+        ProductStatuses.Draft,
+        ProductStatuses.Active,
+        ProductStatuses.Inactive,
+        ProductStatuses.OutOfStock
+    };
+
+    private const int MaxImages = 10;
+    private const long MaxFileSizeBytes = 5 * 1024 * 1024;
 
     public ProductService(CloneEbayDbContext db, IWebHostEnvironment env, IMapper mapper)
     {
@@ -37,9 +55,294 @@ public sealed class ProductService : IProductService
         int pageSize,
         CancellationToken ct)
     {
-        page = page <= 0 ? 1 : page;
-        pageSize = pageSize is < 1 or > 100 ? 20 : pageSize;
+        (page, pageSize) = PaginationHelper.Normalize(page, pageSize);
 
+        var query = BuildProductListQuery(q, categoryId, minPrice, maxPrice, isAuction, status, condition, inStock);
+        query = ApplySorting(query, sort);
+
+        var total = await query.CountAsync(ct);
+
+        var rows = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        MarkExpiredAuctions(rows);
+
+        var items = _mapper.Map<List<ProductListItemDto>>(rows);
+        return new PagedResponse<ProductListItemDto>(items, page, pageSize, total);
+    }
+
+    public async Task<ProductDetailDto> GetByIdAsync(int id, CancellationToken ct)
+    {
+        var exists = await _db.Product
+            .AsNoTracking()
+            .AnyAsync(x => x.id == id && x.isDeleted != true, ct);
+
+        if (!exists)
+            throw new NotFoundException("Product not found", "PRODUCT_NOT_FOUND");
+
+        await IncreaseViewCountAsync(id, ct);
+
+        var p = await _db.Product
+            .Include(x => x.Inventory)
+            .Include(x => x.Bid)
+            .Include(x => x.category)
+            .Include(x => x.seller)
+            .AsNoTracking()
+            .FirstAsync(x => x.id == id && x.isDeleted != true, ct);
+
+        MarkExpiredIfNeeded(p);
+
+        return _mapper.Map<ProductDetailDto>(p);
+    }
+
+    public async Task<ProductDetailDto> CreateAsync(int sellerId, CreateProductRequest req, CancellationToken ct)
+    {
+        ValidateCreate(req);
+
+        var hasStore = await _db.Store
+            .AsNoTracking()
+            .AnyAsync(x => x.sellerId == sellerId, ct);
+
+        if (!hasStore)
+            throw new ForbiddenException(
+                "You must create a store before selling products",
+                "STORE_REQUIRED");
+
+        await EnsureCategoryExistsAsync(req.categoryId, ct);
+
+        var p = new Product
+        {
+            title = req.title.Trim(),
+            description = req.description?.Trim(),
+            price = req.price,
+            categoryId = req.categoryId,
+            sellerId = sellerId,
+            isAuction = req.isAuction,
+            auctionEndTime = req.isAuction ? req.auctionEndTime : null,
+            status = DetermineStatus(req.isAuction, req.auctionEndTime, req.quantity),
+            condition = NormalizeCondition(req.condition),
+            viewCount = 0,
+            isDeleted = false,
+            deletedAt = null
+        };
+
+        ProductImageJson.Write(p, Array.Empty<string>());
+
+        _db.Product.Add(p);
+        await _db.SaveChangesAsync(ct);
+
+        _db.Inventory.Add(new Inventory
+        {
+            productId = p.id,
+            quantity = req.quantity,
+            lastUpdated = DateTime.UtcNow
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        return await ReloadAndMapAsync(p.id, ct);
+    }
+
+    public async Task<ProductDetailDto> UpdateAsync(int sellerId, int productId, UpdateProductRequest req, CancellationToken ct)
+    {
+        ValidateUpdate(req);
+
+        var p = await ProductGuard.LoadOwnedProductAsync(_db, sellerId, productId, ct,
+            q => q.Include(x => x.Inventory).Include(x => x.Bid));
+
+        await EnsureCategoryExistsAsync(req.categoryId, ct);
+
+        ValidateAuctionFieldChanges(p, req);
+
+        p.title = req.title.Trim();
+        p.description = req.description?.Trim();
+        p.price = req.price;
+        p.categoryId = req.categoryId;
+        p.isAuction = req.isAuction;
+        p.auctionEndTime = req.isAuction ? req.auctionEndTime : null;
+        p.condition = NormalizeCondition(req.condition);
+
+        var quantity = p.Inventory.Select(i => i.quantity ?? 0).FirstOrDefault();
+        p.status = DetermineStatus(req.isAuction, req.auctionEndTime, quantity, p.status);
+
+        await _db.SaveChangesAsync(ct);
+
+        return await ReloadAndMapAsync(productId, ct);
+    }
+
+    public async Task UpdateInventoryAsync(int sellerId, int productId, int quantity, CancellationToken ct)
+    {
+        if (quantity < 0)
+            throw new ValidationException("Quantity must be >= 0", "QUANTITY_INVALID");
+
+        var p = await ProductGuard.LoadOwnedProductAsync(_db, sellerId, productId, ct);
+
+        var inv = await _db.Inventory.FirstOrDefaultAsync(x => x.productId == productId, ct);
+        if (inv == null)
+        {
+            inv = new Inventory { productId = productId };
+            _db.Inventory.Add(inv);
+        }
+
+        inv.quantity = quantity;
+        inv.lastUpdated = DateTime.UtcNow;
+
+        p.status = DetermineInventoryStatus(p, quantity);
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<ProductDetailDto> UploadImagesAsync(
+        int sellerId,
+        int productId,
+        IFormFileCollection files,
+        string baseUrl,
+        CancellationToken ct)
+    {
+        var p = await ProductGuard.LoadOwnedProductAsync(_db, sellerId, productId, ct,
+            q => q.Include(x => x.Inventory).Include(x => x.Bid));
+
+        if (files == null || files.Count == 0)
+            throw new ValidationException("No files uploaded", "FILES_EMPTY");
+
+        var urls = ProductImageJson.Read(p);
+
+        if (urls.Count + files.Count > MaxImages)
+            throw new ValidationException("Maximum 10 images allowed", "IMAGES_LIMIT_EXCEEDED");
+
+        var folderRel = Path.Combine("uploads", "products", productId.ToString());
+        var root = _env.WebRootPath ?? "wwwroot";
+        var folderAbs = Path.Combine(root, folderRel);
+        Directory.CreateDirectory(folderAbs);
+
+        foreach (var f in files)
+        {
+            ValidateImageFile(f);
+
+            var ext = Path.GetExtension(f.FileName);
+            var fileName = $"{Guid.NewGuid():N}{ext}";
+            var absPath = Path.Combine(folderAbs, fileName);
+
+            await using var stream = File.Create(absPath);
+            await f.CopyToAsync(stream, ct);
+
+            var relUrl = "/" + Path.Combine(folderRel, fileName).Replace("\\", "/");
+            var fullUrl = $"{baseUrl.TrimEnd('/')}{relUrl}";
+            urls.Add(fullUrl);
+        }
+
+        ProductImageJson.Write(p, urls);
+        await _db.SaveChangesAsync(ct);
+
+        return _mapper.Map<ProductDetailDto>(p);
+    }
+
+    public async Task<ProductDetailDto> DeleteImageAsync(
+        int sellerId,
+        int productId,
+        string imageUrl,
+        CancellationToken ct)
+    {
+        var p = await ProductGuard.LoadOwnedProductAsync(_db, sellerId, productId, ct,
+            q => q.Include(x => x.Inventory).Include(x => x.Bid));
+
+        var urls = ProductImageJson.Read(p);
+        var removed = urls.RemoveAll(x => string.Equals(x, imageUrl, StringComparison.OrdinalIgnoreCase));
+
+        if (removed == 0)
+            throw new NotFoundException("Image not found", "PRODUCT_IMAGE_NOT_FOUND");
+
+        ProductImageJson.Write(p, urls);
+        await _db.SaveChangesAsync(ct);
+
+        return _mapper.Map<ProductDetailDto>(p);
+    }
+
+    public async Task<ProductDetailDto> UpdateStatusAsync(
+        int sellerId,
+        int productId,
+        string status,
+        CancellationToken ct)
+    {
+        status = (status ?? "").Trim().ToUpperInvariant();
+
+        if (!AllowedManualStatuses.Contains(status))
+            throw new ValidationException("Invalid status", "PRODUCT_STATUS_INVALID");
+
+        var p = await ProductGuard.LoadOwnedProductAsync(_db, sellerId, productId, ct,
+            q => q.Include(x => x.Inventory).Include(x => x.Bid));
+
+        if (p.isAuction == true && p.auctionEndTime.HasValue && p.auctionEndTime.Value <= DateTime.UtcNow)
+            throw new ValidationException("Cannot change status of ended auction", "AUCTION_ALREADY_ENDED");
+
+        var quantity = p.Inventory.Select(i => i.quantity ?? 0).FirstOrDefault();
+
+        if (status == ProductStatuses.Active && p.isAuction != true && quantity <= 0)
+            throw new ValidationException("Cannot activate product with zero quantity", "PRODUCT_OUT_OF_STOCK");
+
+        p.status = status;
+        await _db.SaveChangesAsync(ct);
+
+        return _mapper.Map<ProductDetailDto>(p);
+    }
+
+    public async Task DeleteAsync(int sellerId, int productId, CancellationToken ct)
+    {
+        var p = await ProductGuard.LoadOwnedProductAsync(_db, sellerId, productId, ct,
+            q => q.Include(x => x.Bid));
+
+        if (p.Bid.Any())
+            throw new ValidationException("Cannot delete product with existing bids", "PRODUCT_HAS_BIDS");
+
+        p.isDeleted = true;
+        p.deletedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<PagedResponse<ProductListItemDto>> GetMyProductsAsync(
+        int sellerId,
+        string? status,
+        int page,
+        int pageSize,
+        CancellationToken ct)
+    {
+        (page, pageSize) = PaginationHelper.Normalize(page, pageSize);
+
+        var query = _db.Product
+            .AsNoTracking()
+            .Include(p => p.Inventory)
+            .Include(p => p.Bid)
+            .Where(p => p.sellerId == sellerId && p.isDeleted != true);
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            var normalizedStatus = status.Trim().ToUpperInvariant();
+            query = query.Where(p => p.status == normalizedStatus);
+        }
+
+        var total = await query.CountAsync(ct);
+
+        var rows = await query
+            .OrderByDescending(p => p.id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        MarkExpiredAuctions(rows);
+
+        var items = _mapper.Map<List<ProductListItemDto>>(rows);
+        return new PagedResponse<ProductListItemDto>(items, page, pageSize, total);
+    }
+
+    // ── Query building ──────────────────────────────────────────────
+
+    private IQueryable<Product> BuildProductListQuery(
+        string? q, int? categoryId, decimal? minPrice, decimal? maxPrice,
+        bool? isAuction, string? status, string? condition, bool? inStock)
+    {
         var query = _db.Product
             .AsNoTracking()
             .Include(p => p.Inventory)
@@ -87,7 +390,12 @@ public sealed class ProductService : IProductService
                 query = query.Where(p => !p.Inventory.Any(i => (i.quantity ?? 0) > 0));
         }
 
-        query = (sort ?? "newest").ToLowerInvariant() switch
+        return query;
+    }
+
+    private static IQueryable<Product> ApplySorting(IQueryable<Product> query, string? sort)
+    {
+        return (sort ?? "newest").ToLowerInvariant() switch
         {
             "price_asc" => query.OrderBy(p => p.price),
             "price_desc" => query.OrderByDescending(p => p.price),
@@ -96,408 +404,9 @@ public sealed class ProductService : IProductService
             "most_viewed" => query.OrderByDescending(p => p.viewCount ?? 0),
             _ => query.OrderByDescending(p => p.id)
         };
-
-        var total = await query.CountAsync(ct);
-
-        var rows = await query
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(ct);
-
-        foreach (var p in rows)
-        {
-            if (p.isAuction == true && p.status == ProductStatuses.Active && p.auctionEndTime.HasValue && p.auctionEndTime.Value <= DateTime.UtcNow)
-            {
-                p.status = ProductStatuses.Ended;
-            }
-        }
-
-        var items = _mapper.Map<List<ProductListItemDto>>(rows);
-        return new PagedResponse<ProductListItemDto>(items, page, pageSize, total);
     }
 
-    public async Task<ProductDetailDto> GetByIdAsync(int id, CancellationToken ct)
-    {
-        var exists = await _db.Product
-            .AsNoTracking()
-            .AnyAsync(x => x.id == id && x.isDeleted != true, ct);
-
-        if (!exists)
-            throw new NotFoundException("Product not found", "PRODUCT_NOT_FOUND");
-
-        await IncreaseViewCountAsync(id, ct);
-
-        var p = await _db.Product
-            .Include(x => x.Inventory)
-            .Include(x => x.Bid)
-            .Include(x => x.category)
-            .Include(x => x.seller)
-            .AsNoTracking()
-            .FirstAsync(x => x.id == id && x.isDeleted != true, ct);
-
-        if (p.isAuction == true && p.status == ProductStatuses.Active && p.auctionEndTime.HasValue && p.auctionEndTime.Value <= DateTime.UtcNow)
-        {
-            p.status = ProductStatuses.Ended;
-        }
-
-        return _mapper.Map<ProductDetailDto>(p);
-    }
-
-    public async Task<ProductDetailDto> CreateAsync(int sellerId, CreateProductRequest req, CancellationToken ct)
-    {
-        ValidateCreate(req);
-
-        var hasStore = await _db.Store
-            .AsNoTracking()
-            .AnyAsync(x => x.sellerId == sellerId, ct);
-
-        if (!hasStore)
-            throw new ForbiddenException(
-                "You must create a store before selling products",
-                "STORE_REQUIRED");
-
-        var catExists = await _db.Category.AnyAsync(c => c.id == req.categoryId, ct);
-        if (!catExists)
-            throw new NotFoundException("Category not found", "CATEGORY_NOT_FOUND");
-
-        var p = new Product
-        {
-            title = req.title.Trim(),
-            description = req.description?.Trim(),
-            price = req.price,
-            categoryId = req.categoryId,
-            sellerId = sellerId,
-            isAuction = req.isAuction,
-            auctionEndTime = req.isAuction ? req.auctionEndTime : null,
-            status = DetermineStatus(req.isAuction, req.auctionEndTime, req.quantity),
-            condition = NormalizeCondition(req.condition),
-            viewCount = 0,
-            isDeleted = false,
-            deletedAt = null
-        };
-
-        ProductImageJson.Write(p, Array.Empty<string>());
-
-        _db.Product.Add(p);
-        await _db.SaveChangesAsync(ct);
-
-        _db.Inventory.Add(new Inventory
-        {
-            productId = p.id,
-            quantity = req.quantity,
-            lastUpdated = DateTime.UtcNow
-        });
-
-        await _db.SaveChangesAsync(ct);
-
-        var created = await _db.Product
-            .Include(x => x.Inventory)
-            .Include(x => x.Bid)
-            .AsNoTracking()
-            .FirstAsync(x => x.id == p.id, ct);
-
-        return _mapper.Map<ProductDetailDto>(created);
-    }
-
-    public async Task<ProductDetailDto> UpdateAsync(int sellerId, int productId, UpdateProductRequest req, CancellationToken ct)
-    {
-        ValidateUpdate(req);
-
-        var p = await _db.Product
-            .Include(x => x.Inventory)
-            .Include(x => x.Bid)
-            .FirstOrDefaultAsync(x => x.id == productId && x.isDeleted != true, ct);
-
-        if (p == null)
-            throw new NotFoundException("Product not found", "PRODUCT_NOT_FOUND");
-
-        if (p.sellerId != sellerId)
-            throw new ForbiddenException("You are not the owner", "PRODUCT_FORBIDDEN");
-
-        var catExists = await _db.Category.AnyAsync(c => c.id == req.categoryId, ct);
-        if (!catExists)
-            throw new NotFoundException("Category not found", "CATEGORY_NOT_FOUND");
-
-        var hasBids = p.Bid.Any();
-
-        if (hasBids)
-        {
-            if (p.isAuction != req.isAuction)
-                throw new ValidationException("Cannot change auction type after bids exist", "AUCTION_HAS_BIDS");
-
-            if (p.price != req.price)
-                throw new ValidationException("Cannot change starting price after bids exist", "AUCTION_HAS_BIDS");
-
-            if (p.auctionEndTime != req.auctionEndTime)
-                throw new ValidationException("Cannot change auction end time after bids exist", "AUCTION_HAS_BIDS");
-        }
-
-        p.title = req.title.Trim();
-        p.description = req.description?.Trim();
-        p.price = req.price;
-        p.categoryId = req.categoryId;
-        p.isAuction = req.isAuction;
-        p.auctionEndTime = req.isAuction ? req.auctionEndTime : null;
-        p.condition = NormalizeCondition(req.condition);
-
-        var quantity = p.Inventory.Select(i => i.quantity ?? 0).FirstOrDefault();
-        p.status = DetermineStatus(req.isAuction, req.auctionEndTime, quantity, p.status);
-
-        await _db.SaveChangesAsync(ct);
-
-        var updated = await _db.Product
-            .Include(x => x.Inventory)
-            .Include(x => x.Bid)
-            .AsNoTracking()
-            .FirstAsync(x => x.id == productId, ct);
-
-        return _mapper.Map<ProductDetailDto>(updated);
-    }
-
-    public async Task UpdateInventoryAsync(int sellerId, int productId, int quantity, CancellationToken ct)
-    {
-        if (quantity < 0)
-            throw new ValidationException("Quantity must be >= 0", "QUANTITY_INVALID");
-
-        var p = await _db.Product
-            .FirstOrDefaultAsync(x => x.id == productId && x.isDeleted != true, ct);
-
-        if (p == null)
-            throw new NotFoundException("Product not found", "PRODUCT_NOT_FOUND");
-
-        if (p.sellerId != sellerId)
-            throw new ForbiddenException("You are not the owner", "PRODUCT_FORBIDDEN");
-
-        var inv = await _db.Inventory.FirstOrDefaultAsync(x => x.productId == productId, ct);
-        if (inv == null)
-        {
-            inv = new Inventory
-            {
-                productId = productId
-            };
-            _db.Inventory.Add(inv);
-        }
-
-        inv.quantity = quantity;
-        inv.lastUpdated = DateTime.UtcNow;
-
-        // Đồng bộ status theo inventory
-        if (p.isAuction == true)
-        {
-            // Auction vẫn ưu tiên theo trạng thái thời gian đấu giá
-            p.status = p.auctionEndTime.HasValue && p.auctionEndTime.Value <= DateTime.UtcNow
-                ? ProductStatuses.Ended
-                : ProductStatuses.Active;
-        }
-        else
-        {
-            // Buy now: quantity > 0 => ACTIVE, quantity = 0 => OUT_OF_STOCK
-            p.status = quantity > 0
-                ? ProductStatuses.Active
-                : ProductStatuses.OutOfStock;
-        }
-
-        await _db.SaveChangesAsync(ct);
-    }
-
-    public async Task<ProductDetailDto> UploadImagesAsync(
-        int sellerId,
-        int productId,
-        IFormFileCollection files,
-        string baseUrl,
-        CancellationToken ct)
-    {
-        var p = await _db.Product
-            .Include(x => x.Inventory)
-            .Include(x => x.Bid)
-            .FirstOrDefaultAsync(x => x.id == productId && x.isDeleted != true, ct);
-
-        if (p == null)
-            throw new NotFoundException("Product not found", "PRODUCT_NOT_FOUND");
-
-        if (p.sellerId != sellerId)
-            throw new ForbiddenException("You are not the owner", "PRODUCT_FORBIDDEN");
-
-        if (files == null || files.Count == 0)
-            throw new ValidationException("No files uploaded", "FILES_EMPTY");
-
-        var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ".jpg", ".jpeg", ".png", ".webp"
-        };
-
-        var folderRel = Path.Combine("uploads", "products", productId.ToString());
-        var root = _env.WebRootPath ?? "wwwroot";
-        var folderAbs = Path.Combine(root, folderRel);
-
-        Directory.CreateDirectory(folderAbs);
-
-        var urls = ProductImageJson.Read(p);
-
-        if (urls.Count + files.Count > 10)
-            throw new ValidationException("Maximum 10 images allowed", "IMAGES_LIMIT_EXCEEDED");
-
-        foreach (var f in files)
-        {
-            var ext = Path.GetExtension(f.FileName);
-            if (!allowed.Contains(ext))
-                throw new ValidationException($"File type not allowed: {ext}", "FILE_TYPE_NOT_ALLOWED");
-
-            if (f.Length > 5 * 1024 * 1024)
-                throw new ValidationException("Each file must be <= 5MB", "FILE_TOO_LARGE");
-
-            var fileName = $"{Guid.NewGuid():N}{ext}";
-            var absPath = Path.Combine(folderAbs, fileName);
-
-            await using var stream = File.Create(absPath);
-            await f.CopyToAsync(stream, ct);
-
-            var relUrl = "/" + Path.Combine(folderRel, fileName).Replace("\\", "/");
-            var fullUrl = $"{baseUrl.TrimEnd('/')}{relUrl}";
-            urls.Add(fullUrl);
-        }
-
-        ProductImageJson.Write(p, urls);
-        await _db.SaveChangesAsync(ct);
-
-        return _mapper.Map<ProductDetailDto>(p);
-    }
-
-    public async Task<ProductDetailDto> DeleteImageAsync(
-        int sellerId,
-        int productId,
-        string imageUrl,
-        CancellationToken ct)
-    {
-        var p = await _db.Product
-            .Include(x => x.Inventory)
-            .Include(x => x.Bid)
-            .FirstOrDefaultAsync(x => x.id == productId && x.isDeleted != true, ct);
-
-        if (p == null)
-            throw new NotFoundException("Product not found", "PRODUCT_NOT_FOUND");
-
-        if (p.sellerId != sellerId)
-            throw new ForbiddenException("You are not the owner", "PRODUCT_FORBIDDEN");
-
-        var urls = ProductImageJson.Read(p);
-        var removed = urls.RemoveAll(x => string.Equals(x, imageUrl, StringComparison.OrdinalIgnoreCase));
-
-        if (removed == 0)
-            throw new NotFoundException("Image not found", "PRODUCT_IMAGE_NOT_FOUND");
-
-        ProductImageJson.Write(p, urls);
-        await _db.SaveChangesAsync(ct);
-
-        return _mapper.Map<ProductDetailDto>(p);
-    }
-
-    public async Task<ProductDetailDto> UpdateStatusAsync(
-        int sellerId,
-        int productId,
-        string status,
-        CancellationToken ct)
-    {
-        status = (status ?? "").Trim().ToUpperInvariant();
-
-        var allowed = new HashSet<string>
-        {
-            ProductStatuses.Draft,
-            ProductStatuses.Active,
-            ProductStatuses.Inactive,
-            ProductStatuses.OutOfStock
-        };
-
-        if (!allowed.Contains(status))
-            throw new ValidationException("Invalid status", "PRODUCT_STATUS_INVALID");
-
-        var p = await _db.Product
-            .Include(x => x.Inventory)
-            .Include(x => x.Bid)
-            .FirstOrDefaultAsync(x => x.id == productId && x.isDeleted != true, ct);
-
-        if (p == null)
-            throw new NotFoundException("Product not found", "PRODUCT_NOT_FOUND");
-
-        if (p.sellerId != sellerId)
-            throw new ForbiddenException("You are not the owner", "PRODUCT_FORBIDDEN");
-
-        if (p.isAuction == true && p.auctionEndTime.HasValue && p.auctionEndTime.Value <= DateTime.UtcNow)
-            throw new ValidationException("Cannot change status of ended auction", "AUCTION_ALREADY_ENDED");
-
-        var quantity = p.Inventory.Select(i => i.quantity ?? 0).FirstOrDefault();
-
-        if (status == ProductStatuses.Active && p.isAuction != true && quantity <= 0)
-            throw new ValidationException("Cannot activate product with zero quantity", "PRODUCT_OUT_OF_STOCK");
-
-        p.status = status;
-        await _db.SaveChangesAsync(ct);
-
-        return _mapper.Map<ProductDetailDto>(p);
-    }
-
-    public async Task DeleteAsync(int sellerId, int productId, CancellationToken ct)
-    {
-        var p = await _db.Product
-            .Include(x => x.Bid)
-            .FirstOrDefaultAsync(x => x.id == productId && x.isDeleted != true, ct);
-
-        if (p == null)
-            throw new NotFoundException("Product not found", "PRODUCT_NOT_FOUND");
-
-        if (p.sellerId != sellerId)
-            throw new ForbiddenException("You are not the owner", "PRODUCT_FORBIDDEN");
-
-        if (p.Bid.Any())
-            throw new ValidationException("Cannot delete product with existing bids", "PRODUCT_HAS_BIDS");
-
-        p.isDeleted = true;
-        p.deletedAt = DateTime.UtcNow;
-
-        await _db.SaveChangesAsync(ct);
-    }
-
-    public async Task<PagedResponse<ProductListItemDto>> GetMyProductsAsync(
-        int sellerId,
-        string? status,
-        int page,
-        int pageSize,
-        CancellationToken ct)
-    {
-        page = page <= 0 ? 1 : page;
-        pageSize = pageSize is < 1 or > 100 ? 20 : pageSize;
-
-        var query = _db.Product
-            .AsNoTracking()
-            .Include(p => p.Inventory)
-            .Include(p => p.Bid)
-            .Where(p => p.sellerId == sellerId && p.isDeleted != true);
-
-        if (!string.IsNullOrWhiteSpace(status))
-        {
-            var normalizedStatus = status.Trim().ToUpperInvariant();
-            query = query.Where(p => p.status == normalizedStatus);
-        }
-
-        var total = await query.CountAsync(ct);
-
-        var rows = await query
-            .OrderByDescending(p => p.id)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(ct);
-
-        foreach (var p in rows)
-        {
-            if (p.isAuction == true && p.status == ProductStatuses.Active && p.auctionEndTime.HasValue && p.auctionEndTime.Value <= DateTime.UtcNow)
-            {
-                p.status = ProductStatuses.Ended;
-            }
-        }
-
-        var items = _mapper.Map<List<ProductListItemDto>>(rows);
-        return new PagedResponse<ProductListItemDto>(items, page, pageSize, total);
-    }
+    // ── Validation helpers ──────────────────────────────────────────
 
     private static void ValidateCreate(CreateProductRequest req)
     {
@@ -510,23 +419,8 @@ public sealed class ProductService : IProductService
         if (req.quantity < 0)
             throw new ValidationException("Quantity must be >= 0", "QUANTITY_INVALID");
 
-        if (req.isAuction && req.auctionEndTime == null)
-            throw new ValidationException("auctionEndTime is required for auction", "AUCTION_END_REQUIRED");
-
-        if (req.isAuction && req.auctionEndTime <= DateTime.UtcNow)
-            throw new ValidationException("auctionEndTime must be in the future", "AUCTION_END_INVALID");
-
-        if (req.isAuction && req.quantity != 1)
-            throw new ValidationException("Auction listing must have quantity = 1", "AUCTION_QUANTITY_INVALID");
-
-        if (!req.isAuction && req.auctionEndTime != null)
-            throw new ValidationException("auctionEndTime must be null for non-auction product", "AUCTION_END_NOT_ALLOWED");
-
-        if (string.IsNullOrWhiteSpace(req.condition))
-            throw new ValidationException("Condition is required", "PRODUCT_CONDITION_REQUIRED");
-
-        if (!ProductConditions.All.Contains(req.condition.Trim().ToUpperInvariant()))
-            throw new ValidationException("Invalid condition", "PRODUCT_CONDITION_INVALID");
+        ValidateAuctionFields(req.isAuction, req.auctionEndTime, req.quantity);
+        ValidateCondition(req.condition);
     }
 
     private static void ValidateUpdate(UpdateProductRequest req)
@@ -537,21 +431,59 @@ public sealed class ProductService : IProductService
         if (req.price <= 0)
             throw new ValidationException("Price must be > 0", "PRICE_INVALID");
 
-        if (req.isAuction && req.auctionEndTime == null)
+        ValidateAuctionFields(req.isAuction, req.auctionEndTime);
+        ValidateCondition(req.condition);
+    }
+
+    private static void ValidateAuctionFields(bool isAuction, DateTime? auctionEndTime, int? quantity = null)
+    {
+        if (isAuction && auctionEndTime == null)
             throw new ValidationException("auctionEndTime is required for auction", "AUCTION_END_REQUIRED");
 
-        if (req.isAuction && req.auctionEndTime <= DateTime.UtcNow)
+        if (isAuction && auctionEndTime <= DateTime.UtcNow)
             throw new ValidationException("auctionEndTime must be in the future", "AUCTION_END_INVALID");
 
-        if (!req.isAuction && req.auctionEndTime != null)
-            throw new ValidationException("auctionEndTime must be null for non-auction product", "AUCTION_END_NOT_ALLOWED");
+        if (isAuction && quantity.HasValue && quantity != 1)
+            throw new ValidationException("Auction listing must have quantity = 1", "AUCTION_QUANTITY_INVALID");
 
-        if (string.IsNullOrWhiteSpace(req.condition))
+        if (!isAuction && auctionEndTime != null)
+            throw new ValidationException("auctionEndTime must be null for non-auction product", "AUCTION_END_NOT_ALLOWED");
+    }
+
+    private static void ValidateCondition(string? condition)
+    {
+        if (string.IsNullOrWhiteSpace(condition))
             throw new ValidationException("Condition is required", "PRODUCT_CONDITION_REQUIRED");
 
-        if (!ProductConditions.All.Contains(req.condition.Trim().ToUpperInvariant()))
+        if (!ProductConditions.All.Contains(condition.Trim().ToUpperInvariant()))
             throw new ValidationException("Invalid condition", "PRODUCT_CONDITION_INVALID");
     }
+
+    private static void ValidateAuctionFieldChanges(Product p, UpdateProductRequest req)
+    {
+        if (!p.Bid.Any()) return;
+
+        if (p.isAuction != req.isAuction)
+            throw new ValidationException("Cannot change auction type after bids exist", "AUCTION_HAS_BIDS");
+
+        if (p.price != req.price)
+            throw new ValidationException("Cannot change starting price after bids exist", "AUCTION_HAS_BIDS");
+
+        if (p.auctionEndTime != req.auctionEndTime)
+            throw new ValidationException("Cannot change auction end time after bids exist", "AUCTION_HAS_BIDS");
+    }
+
+    private static void ValidateImageFile(IFormFile file)
+    {
+        var ext = Path.GetExtension(file.FileName);
+        if (!AllowedImageExtensions.Contains(ext))
+            throw new ValidationException($"File type not allowed: {ext}", "FILE_TYPE_NOT_ALLOWED");
+
+        if (file.Length > MaxFileSizeBytes)
+            throw new ValidationException("Each file must be <= 5MB", "FILE_TOO_LARGE");
+    }
+
+    // ── Status helpers ──────────────────────────────────────────────
 
     private static string NormalizeCondition(string condition)
         => condition.Trim().ToUpperInvariant();
@@ -581,6 +513,44 @@ public sealed class ProductService : IProductService
         return quantity <= 0 ? ProductStatuses.OutOfStock : ProductStatuses.Active;
     }
 
+    private static string DetermineInventoryStatus(Product p, int quantity)
+    {
+        if (p.isAuction == true)
+        {
+            return p.auctionEndTime.HasValue && p.auctionEndTime.Value <= DateTime.UtcNow
+                ? ProductStatuses.Ended
+                : ProductStatuses.Active;
+        }
+
+        return quantity > 0
+            ? ProductStatuses.Active
+            : ProductStatuses.OutOfStock;
+    }
+
+    private static void MarkExpiredIfNeeded(Product p)
+    {
+        if (p.isAuction == true && p.status == ProductStatuses.Active
+            && p.auctionEndTime.HasValue && p.auctionEndTime.Value <= DateTime.UtcNow)
+        {
+            p.status = ProductStatuses.Ended;
+        }
+    }
+
+    private static void MarkExpiredAuctions(List<Product> products)
+    {
+        foreach (var p in products)
+            MarkExpiredIfNeeded(p);
+    }
+
+    // ── Misc helpers ────────────────────────────────────────────────
+
+    private async Task EnsureCategoryExistsAsync(int categoryId, CancellationToken ct)
+    {
+        var catExists = await _db.Category.AnyAsync(c => c.id == categoryId, ct);
+        if (!catExists)
+            throw new NotFoundException("Category not found", "CATEGORY_NOT_FOUND");
+    }
+
     private async Task IncreaseViewCountAsync(int productId, CancellationToken ct)
     {
         var p = await _db.Product.FirstOrDefaultAsync(x => x.id == productId && x.isDeleted != true, ct);
@@ -588,5 +558,16 @@ public sealed class ProductService : IProductService
 
         p.viewCount = (p.viewCount ?? 0) + 1;
         await _db.SaveChangesAsync(ct);
+    }
+
+    private async Task<ProductDetailDto> ReloadAndMapAsync(int productId, CancellationToken ct)
+    {
+        var product = await _db.Product
+            .Include(x => x.Inventory)
+            .Include(x => x.Bid)
+            .AsNoTracking()
+            .FirstAsync(x => x.id == productId, ct);
+
+        return _mapper.Map<ProductDetailDto>(product);
     }
 }

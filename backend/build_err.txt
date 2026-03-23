@@ -1,0 +1,35 @@
+﻿  Determining projects to restore...
+D:\prn232_project\clone-ebay\backend\CloneEbay.Domain\CloneEbay.Domain.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x [D:\prn232_project\clone-ebay\backend\CloneEbay.sln]
+D:\prn232_project\clone-ebay\backend\CloneEbay.Application\CloneEbay.Application.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x [D:\prn232_project\clone-ebay\backend\CloneEbay.sln]
+D:\prn232_project\clone-ebay\backend\CloneEbay.Contracts\CloneEbay.Contracts.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x [D:\prn232_project\clone-ebay\backend\CloneEbay.sln]
+D:\prn232_project\clone-ebay\backend\CloneEbay.Api\CloneEbay.Api.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x [D:\prn232_project\clone-ebay\backend\CloneEbay.sln]
+D:\prn232_project\clone-ebay\backend\CloneEbay.Infrastructure\CloneEbay.Infrastructure.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x [D:\prn232_project\clone-ebay\backend\CloneEbay.sln]
+  All projects are up-to-date for restore.
+D:\prn232_project\clone-ebay\backend\CloneEbay.Contracts\CloneEbay.Contracts.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x
+D:\prn232_project\clone-ebay\backend\CloneEbay.Domain\CloneEbay.Domain.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x
+D:\prn232_project\clone-ebay\backend\CloneEbay.Application\CloneEbay.Application.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x
+D:\prn232_project\clone-ebay\backend\CloneEbay.Infrastructure\CloneEbay.Infrastructure.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x
+  CloneEbay.Contracts -> D:\prn232_project\clone-ebay\backend\CloneEbay.Contracts\bin\Debug\net9.0\CloneEbay.Contracts.dll
+  CloneEbay.Domain -> D:\prn232_project\clone-ebay\backend\CloneEbay.Domain\bin\Debug\net9.0\CloneEbay.Domain.dll
+  CloneEbay.Application -> D:\prn232_project\clone-ebay\backend\CloneEbay.Application\bin\Debug\net9.0\CloneEbay.Application.dll
+D:\prn232_project\clone-ebay\backend\CloneEbay.Api\CloneEbay.Api.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x
+  CloneEbay.Infrastructure -> D:\prn232_project\clone-ebay\backend\CloneEbay.Infrastructure\bin\Debug\net9.0\CloneEbay.Infrastructure.dll
+D:\prn232_project\clone-ebay\backend\CloneEbay.Api\Controllers\SellerShippingController.cs(24,35): error CS0246: The type or namespace name 'PagedResponse<>' could not be found (are you missing a using directive or an assembly reference?) [D:\prn232_project\clone-ebay\backend\CloneEbay.Api\CloneEbay.Api.csproj]
+
+Build FAILED.
+
+D:\prn232_project\clone-ebay\backend\CloneEbay.Domain\CloneEbay.Domain.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x [D:\prn232_project\clone-ebay\backend\CloneEbay.sln]
+D:\prn232_project\clone-ebay\backend\CloneEbay.Application\CloneEbay.Application.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x [D:\prn232_project\clone-ebay\backend\CloneEbay.sln]
+D:\prn232_project\clone-ebay\backend\CloneEbay.Contracts\CloneEbay.Contracts.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x [D:\prn232_project\clone-ebay\backend\CloneEbay.sln]
+D:\prn232_project\clone-ebay\backend\CloneEbay.Api\CloneEbay.Api.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x [D:\prn232_project\clone-ebay\backend\CloneEbay.sln]
+D:\prn232_project\clone-ebay\backend\CloneEbay.Infrastructure\CloneEbay.Infrastructure.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x [D:\prn232_project\clone-ebay\backend\CloneEbay.sln]
+D:\prn232_project\clone-ebay\backend\CloneEbay.Contracts\CloneEbay.Contracts.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x
+D:\prn232_project\clone-ebay\backend\CloneEbay.Domain\CloneEbay.Domain.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x
+D:\prn232_project\clone-ebay\backend\CloneEbay.Application\CloneEbay.Application.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x
+D:\prn232_project\clone-ebay\backend\CloneEbay.Infrastructure\CloneEbay.Infrastructure.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x
+D:\prn232_project\clone-ebay\backend\CloneEbay.Api\CloneEbay.Api.csproj : warning NU1903: Package 'AutoMapper' 12.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-rvv3-g6hj-g44x
+D:\prn232_project\clone-ebay\backend\CloneEbay.Api\Controllers\SellerShippingController.cs(24,35): error CS0246: The type or namespace name 'PagedResponse<>' could not be found (are you missing a using directive or an assembly reference?) [D:\prn232_project\clone-ebay\backend\CloneEbay.Api\CloneEbay.Api.csproj]
+    10 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:01.27

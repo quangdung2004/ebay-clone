@@ -1,14 +1,16 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using CloneEbay.Application.Common;
 using CloneEbay.Application.Payments;
 using CloneEbay.Contracts.Orders;
 using CloneEbay.Contracts.Payments;
 using CloneEbay.Domain.Entities;
 using CloneEbay.Domain.Exceptions;
+using CloneEbay.Infrastructure.Common.Helpers;
+using CloneEbay.Infrastructure.Common.Mappers;
 using CloneEbay.Infrastructure.Persistence;
-using CloneEbay.Infrastructure.Products;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -20,41 +22,20 @@ public sealed class PaymentService : IPaymentService
     private readonly HttpClient _http;
     private readonly PayPalOptions _options;
     private readonly ISellerHoldPolicyService _holdPolicy;
-
-    private static class OrderStatuses
-    {
-        public const string PendingPayment = "PENDING_PAYMENT";
-        public const string Paid = "PAID";
-        public const string Cancelled = "CANCELLED";
-    }
-
-    private static class PaymentMethods
-    {
-        public const string PayPal = "PAYPAL";
-    }
-
-    private static class PaymentStatuses
-    {
-        public const string Pending = "PENDING";
-        public const string Captured = "CAPTURED";
-        public const string Cancelled = "CANCELLED";
-    }
-
-    private static class SettlementStatuses
-    {
-        public const string OnHold = "ON_HOLD";
-    }
+    private readonly CloneEbay.Application.Orders.IOrderEmailService _emailService;
 
     public PaymentService(
         CloneEbayDbContext db,
         HttpClient http,
         IOptions<PayPalOptions> options,
-        ISellerHoldPolicyService holdPolicy)
+        ISellerHoldPolicyService holdPolicy,
+        CloneEbay.Application.Orders.IOrderEmailService emailService)
     {
         _db = db;
         _http = http;
         _options = options.Value;
         _holdPolicy = holdPolicy;
+        _emailService = emailService;
     }
 
     public async Task<CreatePayPalPaymentDto> CreatePayPalOrderAsync(int buyerId, int orderId, CancellationToken ct)
@@ -101,7 +82,7 @@ public sealed class PaymentService : IPaymentService
         ValidatePayPalPayment(payment, allowCaptured: true);
 
         if (string.Equals(payment.status, PaymentStatuses.Captured, StringComparison.OrdinalIgnoreCase))
-            return MapOrderDetail(order!);
+            return OrderMapper.ToDetailDto(order!);
 
         var accessToken = await GetAccessTokenAsync(ct);
 
@@ -125,8 +106,21 @@ public sealed class PaymentService : IPaymentService
         await _db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
-        return MapOrderDetail(order);
+        // Send confirmation email (fire and forget or await, depending on policy)
+        try
+        {
+            await _emailService.SendPaymentSuccessEmailAsync(order, ct);
+        }
+        catch (Exception ex)
+        {
+            // Log but don't fail transaction if email fails
+            // Consider using a background worker for more robustness
+        }
+
+        return OrderMapper.ToDetailDto(order);
     }
+
+    // ── Validation helpers ──────────────────────────────────────────
 
     private static void ValidateOrderBeforeCreate(OrderTable? order, int buyerId)
     {
@@ -182,6 +176,8 @@ public sealed class PaymentService : IPaymentService
             throw new ValidationException("Order has already been paid", "ORDER_ALREADY_PAID");
         }
     }
+
+    // ── PayPal HTTP helpers ─────────────────────────────────────────
 
     private HttpRequestMessage BuildCreateOrderRequest(OrderTable order, string accessToken)
     {
@@ -282,94 +278,6 @@ public sealed class PaymentService : IPaymentService
         throw new ValidationException("PayPal payment was not completed", "PAYPAL_PAYMENT_NOT_COMPLETED");
     }
 
-    private async Task CreateSellerSettlementsAsync(OrderTable order, CancellationToken ct)
-    {
-        var heldAt = DateTime.UtcNow;
-
-        foreach (var item in order.OrderItem)
-        {
-            if (item.product?.sellerId == null)
-                continue;
-
-            var exists = await _db.SellerSettlement
-                .AsNoTracking()
-                .AnyAsync(x => x.orderItemId == item.id, ct);
-
-            if (exists)
-                continue;
-
-            var sellerId = item.product.sellerId.Value;
-            var grossAmount = (item.unitPrice ?? 0m) * (item.quantity ?? 0);
-            var platformFee = Math.Round(grossAmount * 0.05m, 2, MidpointRounding.AwayFromZero);
-            var netAmount = grossAmount - platformFee;
-
-            var wallet = await GetOrCreateWalletAsync(sellerId, ct);
-            var trustProfile = await GetOrCreateTrustProfileAsync(sellerId, ct);
-            var availableAt = _holdPolicy.CalculateAvailableAt(trustProfile, heldAt);
-
-            _db.SellerSettlement.Add(new SellerSettlement
-            {
-                orderId = order.id,
-                orderItemId = item.id,
-                sellerId = sellerId,
-                grossAmount = grossAmount,
-                platformFee = platformFee,
-                netAmount = netAmount,
-                status = SettlementStatuses.OnHold,
-                holdReason = $"LEVEL_{trustProfile.level}",
-                heldAt = heldAt,
-                availableAt = availableAt,
-                releasedAt = null
-            });
-
-            wallet.pendingBalance += netAmount;
-            wallet.updatedAt = DateTime.UtcNow;
-        }
-    }
-
-    private async Task<SellerWallet> GetOrCreateWalletAsync(int sellerId, CancellationToken ct)
-    {
-        var wallet = await _db.SellerWallet.FirstOrDefaultAsync(x => x.sellerId == sellerId, ct);
-        if (wallet != null)
-            return wallet;
-
-        wallet = new SellerWallet
-        {
-            sellerId = sellerId,
-            pendingBalance = 0m,
-            availableBalance = 0m,
-            totalEarned = 0m,
-            createdAt = DateTime.UtcNow,
-            updatedAt = DateTime.UtcNow
-        };
-
-        _db.SellerWallet.Add(wallet);
-        return wallet;
-    }
-
-    private async Task<SellerTrustProfile> GetOrCreateTrustProfileAsync(int sellerId, CancellationToken ct)
-    {
-        var trustProfile = await _db.SellerTrustProfile.FirstOrDefaultAsync(x => x.sellerId == sellerId, ct);
-        if (trustProfile != null)
-            return trustProfile;
-
-        trustProfile = new SellerTrustProfile
-        {
-            sellerId = sellerId,
-            level = 1,
-            completedOrders = 0,
-            successfulDeliveries = 0,
-            refundCount = 0,
-            disputeCount = 0,
-            isVerified = false,
-            createdAt = DateTime.UtcNow,
-            updatedAt = DateTime.UtcNow
-        };
-
-        _db.SellerTrustProfile.Add(trustProfile);
-        return trustProfile;
-    }
-
     private async Task<string> GetAccessTokenAsync(CancellationToken ct)
     {
         var basic = Convert.ToBase64String(
@@ -397,60 +305,44 @@ public sealed class PaymentService : IPaymentService
         return token;
     }
 
-    private static OrderDetailDto MapOrderDetail(OrderTable order)
-    {
-        return new OrderDetailDto(
-            id: order.id,
-            buyerId: order.buyerId,
-            buyerName: order.buyer?.username,
-            orderDate: order.orderDate,
-            totalPrice: order.totalPrice ?? 0m,
-            status: order.status,
-            address: order.address == null ? null : new AddressSummaryDto(
-                order.address.id,
-                order.address.fullName,
-                order.address.phone,
-                order.address.street,
-                order.address.city,
-                order.address.state,
-                order.address.country,
-                order.address.isDefault),
-            items: order.OrderItem.Select(MapItem).ToList(),
-            payments: order.Payment.Select(MapPayment).ToList(),
-            shippings: order.ShippingInfo.Select(x => new ShippingSummaryDto(
-                x.id,
-                x.carrier,
-                x.trackingNumber,
-                x.status,
-                x.estimatedArrival)).ToList()
-        );
-    }
+    // ── Settlement creation ─────────────────────────────────────────
 
-    private static OrderItemSummaryDto MapItem(OrderItem item)
+    private async Task CreateSellerSettlementsAsync(OrderTable order, CancellationToken ct)
     {
-        var image = item.product == null ? null : ProductImageJson.Read(item.product).FirstOrDefault();
+        foreach (var item in order.OrderItem)
+        {
+            if (item.product?.sellerId == null)
+                continue;
 
-        return new OrderItemSummaryDto(
-            id: item.id,
-            productId: item.productId,
-            productTitle: item.product?.title ?? "Unknown product",
-            thumbnailUrl: image,
-            quantity: item.quantity ?? 0,
-            unitPrice: item.unitPrice ?? 0m,
-            lineTotal: (item.unitPrice ?? 0m) * (item.quantity ?? 0),
-            sellerId: item.product?.sellerId,
-            sellerName: item.product?.seller?.username
-        );
-    }
+            var exists = await _db.SellerSettlement
+                .AsNoTracking()
+                .AnyAsync(x => x.orderItemId == item.id, ct);
 
-    private static PaymentSummaryDto MapPayment(Payment payment)
-    {
-        return new PaymentSummaryDto(
-            id: payment.id,
-            amount: payment.amount ?? 0m,
-            method: payment.method,
-            status: payment.status,
-            paidAt: payment.paidAt
-        );
+            if (exists)
+                continue;
+
+            var sellerId = item.product.sellerId.Value;
+            var grossAmount = (item.unitPrice ?? 0m) * (item.quantity ?? 0);
+            var platformFee = Math.Round(grossAmount * 0.05m, 2, MidpointRounding.AwayFromZero);
+            var netAmount = grossAmount - platformFee;
+
+            await SellerEntityFactory.GetOrCreateWalletAsync(_db, sellerId, ct);
+            await SellerEntityFactory.GetOrCreateTrustProfileAsync(_db, sellerId, ct);
+
+            _db.SellerSettlement.Add(new SellerSettlement
+            {
+                orderId = order.id,
+                orderItemId = item.id,
+                sellerId = sellerId,
+                grossAmount = grossAmount,
+                platformFee = platformFee,
+                netAmount = netAmount,
+                status = SettlementStatuses.Pending,
+                holdReason = null,
+                heldAt = null,
+                availableAt = null,
+                releasedAt = null
+            });
+        }
     }
 }

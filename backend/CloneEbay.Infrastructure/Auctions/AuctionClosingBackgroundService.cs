@@ -1,6 +1,6 @@
-﻿using CloneEbay.Application.Notifications;
+using CloneEbay.Application.Common;
+using CloneEbay.Application.Notifications;
 using CloneEbay.Infrastructure.Persistence;
-using CloneEbay.Infrastructure.Products;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -60,88 +60,56 @@ public sealed class AuctionClosingBackgroundService : BackgroundService
 
         foreach (var productId in expiredIds)
         {
-            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            await ProcessSingleAuctionAsync(db, publisher, hub, productId, ct);
+        }
+    }
 
-            var product = await db.Product
-                .Include(x => x.Bid)
-                .Include(x => x.Inventory)
-                .FirstOrDefaultAsync(x => x.id == productId && x.isDeleted != true, ct);
+    private static async Task ProcessSingleAuctionAsync(
+        CloneEbayDbContext db,
+        IAuctionEventPublisher publisher,
+        AuctionRealtimeNotifier hub,
+        int productId,
+        CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
 
-            if (product == null)
-            {
-                await tx.CommitAsync(ct);
-                continue;
-            }
+        var product = await db.Product
+            .Include(x => x.Bid)
+            .Include(x => x.Inventory)
+            .FirstOrDefaultAsync(x => x.id == productId && x.isDeleted != true, ct);
 
-            if (product.status == ProductStatuses.Sold || product.status == ProductStatuses.Ended)
-            {
-                await tx.CommitAsync(ct);
-                continue;
-            }
+        if (product == null || AuctionClosingHelper.IsAlreadyClosed(product))
+        {
+            await tx.CommitAsync(ct);
+            return;
+        }
 
-            if (product.auctionOrderId.HasValue || product.winnerUserId.HasValue)
-            {
-                await tx.CommitAsync(ct);
-                continue;
-            }
+        var winningBid = AuctionClosingHelper.GetWinningBid(product.Bid);
 
-            var winningBid = product.Bid
-                .OrderByDescending(x => x.amount)
-                .ThenBy(x => x.bidTime)
-                .FirstOrDefault();
-
-            if (winningBid == null)
-            {
-                product.status = ProductStatuses.Ended;
-                await db.SaveChangesAsync(ct);
-                await tx.CommitAsync(ct);
-
-                await hub.NotifyAuctionClosedAsync(product.id, false, null, null, ct);
-                continue;
-            }
-
-            var order = new Domain.Entities.OrderTable
-            {
-                buyerId = winningBid.bidderId,
-                addressId = null,
-                orderDate = DateTime.UtcNow,
-                totalPrice = winningBid.amount,
-                status = "PENDING_PAYMENT"
-            };
-
-            db.OrderTable.Add(order);
-            await db.SaveChangesAsync(ct);
-
-            db.OrderItem.Add(new Domain.Entities.OrderItem
-            {
-                orderId = order.id,
-                productId = product.id,
-                quantity = 1,
-                unitPrice = winningBid.amount
-            });
-
-            product.winnerUserId = winningBid.bidderId;
-            product.auctionOrderId = order.id;
-            product.status = ProductStatuses.Sold;
-
-            var inv = product.Inventory.FirstOrDefault();
-            if (inv != null)
-            {
-                inv.quantity = 0;
-                inv.lastUpdated = DateTime.UtcNow;
-            }
-
+        if (winningBid == null)
+        {
+            AuctionClosingHelper.MarkEndedNoBids(product);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
-            await publisher.PublishWinnerEmailAsync(
-                product.id,
-                winningBid.bidderId!.Value,
-                winningBid.amount ?? 0,
-                order.id,
-                ct);
-
-            await hub.NotifyAuctionClosedAsync(product.id, true, winningBid.bidderId, winningBid.amount, ct);
+            await hub.NotifyAuctionClosedAsync(product.id, false, null, null, ct);
+            return;
         }
+
+        var order = AuctionClosingHelper.CreateWinnerOrder(db, product, winningBid);
+        await db.SaveChangesAsync(ct);
+
+        AuctionClosingHelper.FinalizeAuctionWin(db, product, winningBid, order.id);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+
+        await publisher.PublishWinnerEmailAsync(
+            product.id,
+            winningBid.bidderId!.Value,
+            winningBid.amount ?? 0,
+            order.id,
+            ct);
+
+        await hub.NotifyAuctionClosedAsync(product.id, true, winningBid.bidderId, winningBid.amount, ct);
     }
 }

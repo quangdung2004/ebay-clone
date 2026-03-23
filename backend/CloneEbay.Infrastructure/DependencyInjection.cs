@@ -1,27 +1,29 @@
-using CloneEbay.Application.Orders;
-using CloneEbay.Infrastructure.Orders;
 using CloneEbay.Application.Auth;
 using CloneEbay.Application.Auctions;
 using CloneEbay.Application.Bids;
 using CloneEbay.Application.Categories;
 using CloneEbay.Application.Notifications;
+using CloneEbay.Application.Orders;
+using CloneEbay.Application.Payments;
 using CloneEbay.Application.Products;
+using CloneEbay.Application.Shipping;
 using CloneEbay.Application.Stores;
 using CloneEbay.Infrastructure.Auth;
 using CloneEbay.Infrastructure.Auctions;
 using CloneEbay.Infrastructure.Bids;
 using CloneEbay.Infrastructure.Categories;
 using CloneEbay.Infrastructure.Messaging;
+using CloneEbay.Infrastructure.Orders;
+using CloneEbay.Infrastructure.Payments;
 using CloneEbay.Infrastructure.Persistence;
 using CloneEbay.Infrastructure.Products;
 using CloneEbay.Infrastructure.Products.Mapping;
+using CloneEbay.Infrastructure.Shipping;
 using CloneEbay.Infrastructure.Stores;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
-using CloneEbay.Application.Payments;
-using CloneEbay.Infrastructure.Payments;
 
 namespace CloneEbay.Infrastructure;
 
@@ -91,15 +93,38 @@ public static class DependencyInjection
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IStoreService, StoreService>();
         services.AddScoped<IOrderService, OrderService>();
-        services.Configure<PayPalOptions>(configuration.GetSection("PayPal"));
 
+        // PayPal
+        services.Configure<PayPalOptions>(configuration.GetSection("PayPal"));
         services.AddHttpClient<IPaymentService, PaymentService>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
         });
+
+        // Seller wallet / settlement
         services.AddScoped<ISellerHoldPolicyService, SellerHoldPolicyService>();
-        services.AddHostedService<SettlementReleaseBackgroundService>();
         services.AddScoped<ISellerWalletService, SellerWalletService>();
+        services.AddHostedService<SettlementReleaseBackgroundService>();
+
+        // 17TRACK
+        services.Configure<SeventeenTrackOptions>(configuration.GetSection("SeventeenTrack"));
+        services.AddHttpClient<ISeventeenTrackClient, SeventeenTrackClient>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
+        // Shipping & Orders
+        services.AddScoped<IShippingService, ShippingService>();
+        services.AddScoped<IShippingWebhookService, ShippingWebhookService>();
+        services.AddScoped<CloneEbay.Application.Orders.IOrderEmailService, CloneEbay.Infrastructure.Orders.OrderEmailService>();
+
+        
+        // Geocoding
+        services.AddHttpClient<CloneEbay.Application.Common.Interfaces.IGeocodingService, NominatimGeocodingService>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.Add("User-Agent", "CloneEbayTracking/1.0");
+        });
 
         // Realtime + messaging
         services.AddSingleton<AuctionRealtimeNotifier>();
@@ -108,7 +133,9 @@ public static class DependencyInjection
         // Background services
         services.AddHostedService<AuctionClosingBackgroundService>();
         services.AddHostedService<AuctionWinnerEmailConsumer>();
-        
+        services.AddHostedService<CloneEbay.Infrastructure.Payments.SettlementReleaseBackgroundService>();
+        services.AddHostedService<CloneEbay.Infrastructure.Orders.OrderAutoCancelBackgroundService>();
+
 
         return services;
     }

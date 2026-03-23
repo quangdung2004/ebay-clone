@@ -1,10 +1,12 @@
-﻿using CloneEbay.Application.Orders;
+using CloneEbay.Application.Common;
+using CloneEbay.Application.Orders;
 using CloneEbay.Contracts.Orders;
 using CloneEbay.Contracts.Products;
 using CloneEbay.Domain.Entities;
 using CloneEbay.Domain.Exceptions;
+using CloneEbay.Infrastructure.Common.Helpers;
+using CloneEbay.Infrastructure.Common.Mappers;
 using CloneEbay.Infrastructure.Persistence;
-using CloneEbay.Infrastructure.Products;
 using Microsoft.EntityFrameworkCore;
 
 namespace CloneEbay.Infrastructure.Orders;
@@ -12,27 +14,6 @@ namespace CloneEbay.Infrastructure.Orders;
 public sealed class OrderService : IOrderService
 {
     private readonly CloneEbayDbContext _db;
-
-    private static class OrderStatuses
-    {
-        public const string PendingPayment = "PENDING_PAYMENT";
-        public const string Confirmed = "CONFIRMED";
-        public const string Paid = "PAID";
-        public const string Cancelled = "CANCELLED";
-    }
-
-    private static class PaymentStatuses
-    {
-        public const string Pending = "PENDING";
-        public const string Captured = "CAPTURED";
-        public const string Cancelled = "CANCELLED";
-    }
-
-    private static class PaymentMethods
-    {
-        public const string Cod = "COD";
-        public const string PayPal = "PAYPAL";
-    }
 
     public OrderService(CloneEbayDbContext db)
     {
@@ -49,8 +30,8 @@ public sealed class OrderService : IOrderService
 
         var paymentMethod = NormalizePaymentMethod(req.paymentMethod);
         var now = DateTime.UtcNow;
-        decimal total = 0m;
 
+        decimal subtotal = 0m;
         var reservedLines = new List<(Product product, int quantity, decimal unitPrice)>();
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
@@ -69,10 +50,13 @@ public sealed class OrderService : IOrderService
                 : ProductStatuses.OutOfStock;
 
             var unitPrice = product.price ?? 0m;
-            total += unitPrice * itemReq.quantity;
+            subtotal += unitPrice * itemReq.quantity;
 
             reservedLines.Add((product, itemReq.quantity, unitPrice));
         }
+
+        var shippingFee = ShippingFeeCalculator.Calculate(address, reservedLines);
+        var grandTotal = subtotal + shippingFee;
 
         var order = new OrderTable
         {
@@ -80,9 +64,13 @@ public sealed class OrderService : IOrderService
             addressId = address.id,
             orderDate = now,
             status = paymentMethod == PaymentMethods.Cod
-                ? OrderStatuses.Confirmed
+                ? OrderStatuses.Paid
                 : OrderStatuses.PendingPayment,
-            totalPrice = total
+            subtotalAmount = subtotal,
+            shippingFee = shippingFee,
+            totalPrice = grandTotal,
+            addressChangeCount = 0,
+            lastAddressChangedAt = null
         };
 
         _db.OrderTable.Add(order);
@@ -103,10 +91,14 @@ public sealed class OrderService : IOrderService
         {
             orderId = order.id,
             userId = buyerId,
-            amount = total,
+            amount = grandTotal,
             method = paymentMethod,
-            status = PaymentStatuses.Pending,
-            paidAt = null
+            status = paymentMethod == PaymentMethods.Cod
+        ? PaymentStatuses.Captured
+        : PaymentStatuses.Pending,
+            paidAt = paymentMethod == PaymentMethods.Cod
+        ? now
+        : null
         });
 
         await _db.SaveChangesAsync(ct);
@@ -117,8 +109,7 @@ public sealed class OrderService : IOrderService
 
     public async Task<PagedResponse<OrderSummaryDto>> GetMyOrdersAsync(int buyerId, int page, int pageSize, CancellationToken ct)
     {
-        page = page <= 0 ? 1 : page;
-        pageSize = pageSize is < 1 or > 100 ? 20 : pageSize;
+        (page, pageSize) = PaginationHelper.Normalize(page, pageSize);
 
         var query = _db.OrderTable
             .AsNoTracking()
@@ -136,33 +127,46 @@ public sealed class OrderService : IOrderService
             .Take(pageSize)
             .ToListAsync(ct);
 
-        var items = orders.Select(MapSummary).ToList();
+        var items = orders.Select(OrderMapper.ToSummaryDto).ToList();
+        return new PagedResponse<OrderSummaryDto>(items, page, pageSize, total);
+    }
+
+    public async Task<PagedResponse<OrderSummaryDto>> GetSellerOrdersAsync(int sellerId, int page, int pageSize, CancellationToken ct)
+    {
+        (page, pageSize) = PaginationHelper.Normalize(page, pageSize);
+
+        var query = _db.OrderTable
+            .AsNoTracking()
+            .Include(x => x.buyer)
+            .Include(x => x.OrderItem).ThenInclude(x => x.product).ThenInclude(x => x!.seller)
+            .Include(x => x.Payment)
+            .Where(x => x.OrderItem.Any(i => i.product != null && i.product.sellerId == sellerId))
+            .OrderByDescending(x => x.orderDate)
+            .ThenByDescending(x => x.id);
+
+        var total = await query.CountAsync(ct);
+
+        var orders = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        var items = orders.Select(OrderMapper.ToSummaryDto).ToList();
         return new PagedResponse<OrderSummaryDto>(items, page, pageSize, total);
     }
 
     public async Task<OrderDetailDto> GetByIdAsync(int buyerId, int orderId, CancellationToken ct)
     {
-        var order = await _db.OrderTable
-            .AsNoTracking()
-            .Include(x => x.buyer)
-            .Include(x => x.address)
-            .Include(x => x.OrderItem).ThenInclude(x => x.product).ThenInclude(x => x!.seller)
-            .Include(x => x.Payment)
-            .Include(x => x.ShippingInfo)
-            .FirstOrDefaultAsync(x => x.id == orderId, ct);
-
-        if (order == null)
-            throw new NotFoundException("Order not found", "ORDER_NOT_FOUND");
-
-        if (order.buyerId != buyerId)
-            throw new ForbiddenException("You are not allowed to access this order", "ORDER_FORBIDDEN");
-
-        return MapDetail(order);
+        var order = await LoadOrderForBuyerAsync(orderId, buyerId, ct);
+        return OrderMapper.ToDetailDto(order);
     }
 
     public async Task<OrderDetailDto> UpdateAddressAsync(int buyerId, int orderId, int addressId, CancellationToken ct)
     {
-        var order = await _db.OrderTable.FirstOrDefaultAsync(x => x.id == orderId, ct);
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+        var order = await _db.OrderTable
+            .FirstOrDefaultAsync(x => x.id == orderId, ct);
 
         if (order == null)
             throw new NotFoundException("Order not found", "ORDER_NOT_FOUND");
@@ -173,8 +177,19 @@ public sealed class OrderService : IOrderService
         if (string.Equals(order.status, OrderStatuses.Cancelled, StringComparison.OrdinalIgnoreCase))
             throw new ValidationException("Cancelled order cannot be updated", "ORDER_ALREADY_CANCELLED");
 
-        if (string.Equals(order.status, OrderStatuses.Paid, StringComparison.OrdinalIgnoreCase))
-            throw new ValidationException("Paid order cannot update address", "ORDER_ALREADY_PAID");
+        if (string.Equals(order.status, OrderStatuses.Shipped, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(order.status, OrderStatuses.Delivered, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(order.status, OrderStatuses.Completed, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ValidationException(
+                "Shipping address can only be changed once before shipment is created",
+                "ORDER_ADDRESS_CHANGE_NOT_ALLOWED");
+        }
+
+        if (order.addressChangeCount >= 1)
+            throw new ValidationException(
+                "Shipping address can only be changed once",
+                "ORDER_ADDRESS_CHANGE_LIMIT_REACHED");
 
         var address = await _db.Address
             .AsNoTracking()
@@ -183,8 +198,53 @@ public sealed class OrderService : IOrderService
         if (address == null)
             throw new NotFoundException("Address not found", "ADDRESS_NOT_FOUND");
 
+        if (order.addressId == addressId)
+            return await GetByIdAsync(buyerId, orderId, ct);
+
+        var oldAddressId = order.addressId;
+
         order.addressId = addressId;
+        order.addressChangeCount += 1;
+        order.lastAddressChangedAt = DateTime.UtcNow;
+
+        var latestPayment = await _db.Payment
+            .Where(x => x.orderId == order.id)
+            .OrderByDescending(x => x.id)
+            .FirstOrDefaultAsync(ct);
+
+        var isCaptured = latestPayment != null &&
+            string.Equals(latestPayment.status, PaymentStatuses.Captured, StringComparison.OrdinalIgnoreCase);
+
+        if (!isCaptured)
+        {
+            var lines = await LoadOrderPricingLinesAsync(order.id, ct);
+
+            var newShippingFee = ShippingFeeCalculator.Calculate(address, lines);
+            var subtotal = order.subtotalAmount ?? lines.Sum(x => x.unitPrice * x.quantity);
+
+            order.subtotalAmount = subtotal;
+            order.shippingFee = newShippingFee;
+            order.totalPrice = subtotal + newShippingFee;
+
+            if (latestPayment != null)
+                latestPayment.amount = order.totalPrice;
+        }
+
+        if (oldAddressId.HasValue)
+        {
+            _db.OrderAddressChangeHistory.Add(new OrderAddressChangeHistory
+            {
+                orderId = order.id,
+                oldAddressId = oldAddressId.Value,
+                newAddressId = addressId,
+                changedByUserId = buyerId,
+                reason = "Buyer changed shipping address before shipment",
+                changedAt = DateTime.UtcNow
+            });
+        }
+
         await _db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
 
         return await GetByIdAsync(buyerId, orderId, ct);
     }
@@ -213,28 +273,7 @@ public sealed class OrderService : IOrderService
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
         order.status = OrderStatuses.Cancelled;
-
-        foreach (var item in order.OrderItem)
-        {
-            if (item.product == null)
-                continue;
-
-            var inventory = item.product.Inventory.FirstOrDefault();
-            if (inventory == null)
-            {
-                inventory = new Inventory
-                {
-                    productId = item.product.id,
-                    quantity = 0,
-                    lastUpdated = DateTime.UtcNow
-                };
-                _db.Inventory.Add(inventory);
-            }
-
-            inventory.quantity = (inventory.quantity ?? 0) + (item.quantity ?? 0);
-            inventory.lastUpdated = DateTime.UtcNow;
-            item.product.status = ProductStatuses.Active;
-        }
+        RestoreInventoryOnCancel(order, _db);
 
         foreach (var payment in order.Payment)
         {
@@ -245,6 +284,29 @@ public sealed class OrderService : IOrderService
         await tx.CommitAsync(ct);
 
         return await GetByIdAsync(buyerId, orderId, ct);
+    }
+
+    // ── Private helpers ─────────────────────────────────────────────
+
+    private async Task<OrderTable> LoadOrderForBuyerAsync(int orderId, int buyerId, CancellationToken ct)
+    {
+        var order = await _db.OrderTable
+            .AsNoTracking()
+            .Include(x => x.buyer)
+            .Include(x => x.address)
+            .Include(x => x.OrderItem).ThenInclude(x => x.product).ThenInclude(x => x!.seller)
+            .Include(x => x.Payment)
+            .Include(x => x.ShippingInfo)
+                .ThenInclude(s => s.ShippingTrackingEvent)
+            .FirstOrDefaultAsync(x => x.id == orderId, ct);
+
+        if (order == null)
+            throw new NotFoundException("Order not found", "ORDER_NOT_FOUND");
+
+        if (order.buyerId != buyerId)
+            throw new ForbiddenException("You are not allowed to access this order", "ORDER_FORBIDDEN");
+
+        return order;
     }
 
     private async Task<Address> ResolveBuyerAddressAsync(int buyerId, int? addressId, CancellationToken ct)
@@ -336,76 +398,44 @@ public sealed class OrderService : IOrderService
         return normalized;
     }
 
-    private static OrderSummaryDto MapSummary(OrderTable order)
+    private static void RestoreInventoryOnCancel(OrderTable order, CloneEbayDbContext db)
     {
-        return new OrderSummaryDto(
-            id: order.id,
-            buyerId: order.buyerId,
-            buyerName: order.buyer?.username,
-            addressId: order.addressId,
-            orderDate: order.orderDate,
-            totalPrice: order.totalPrice ?? 0m,
-            status: order.status,
-            totalItems: order.OrderItem.Sum(x => x.quantity ?? 0),
-            items: order.OrderItem.Select(MapItem).ToList(),
-            payments: order.Payment.Select(MapPayment).ToList()
-        );
+        foreach (var item in order.OrderItem)
+        {
+            if (item.product == null)
+                continue;
+
+            var inventory = item.product.Inventory.FirstOrDefault();
+            if (inventory == null)
+            {
+                inventory = new Inventory
+                {
+                    productId = item.product.id,
+                    quantity = 0,
+                    lastUpdated = DateTime.UtcNow
+                };
+                db.Inventory.Add(inventory);
+            }
+
+            inventory.quantity = (inventory.quantity ?? 0) + (item.quantity ?? 0);
+            inventory.lastUpdated = DateTime.UtcNow;
+            item.product.status = ProductStatuses.Active;
+        }
     }
 
-    private static OrderDetailDto MapDetail(OrderTable order)
+    private async Task<List<(Product product, int quantity, decimal unitPrice)>> LoadOrderPricingLinesAsync(int orderId, CancellationToken ct)
     {
-        return new OrderDetailDto(
-            id: order.id,
-            buyerId: order.buyerId,
-            buyerName: order.buyer?.username,
-            orderDate: order.orderDate,
-            totalPrice: order.totalPrice ?? 0m,
-            status: order.status,
-            address: order.address == null ? null : new AddressSummaryDto(
-                order.address.id,
-                order.address.fullName,
-                order.address.phone,
-                order.address.street,
-                order.address.city,
-                order.address.state,
-                order.address.country,
-                order.address.isDefault),
-            items: order.OrderItem.Select(MapItem).ToList(),
-            payments: order.Payment.Select(MapPayment).ToList(),
-            shippings: order.ShippingInfo.Select(x => new ShippingSummaryDto(
-                x.id,
-                x.carrier,
-                x.trackingNumber,
-                x.status,
-                x.estimatedArrival)).ToList()
-        );
-    }
+        var orderItems = await _db.OrderItem
+            .Include(x => x.product)
+            .Where(x => x.orderId == orderId)
+            .ToListAsync(ct);
 
-    private static OrderItemSummaryDto MapItem(OrderItem item)
-    {
-        var image = item.product == null ? null : ProductImageJson.Read(item.product).FirstOrDefault();
-
-        return new OrderItemSummaryDto(
-            id: item.id,
-            productId: item.productId,
-            productTitle: item.product?.title ?? "Unknown product",
-            thumbnailUrl: image,
-            quantity: item.quantity ?? 0,
-            unitPrice: item.unitPrice ?? 0m,
-            lineTotal: (item.unitPrice ?? 0m) * (item.quantity ?? 0),
-            sellerId: item.product?.sellerId,
-            sellerName: item.product?.seller?.username
-        );
-    }
-
-    private static PaymentSummaryDto MapPayment(Payment payment)
-    {
-        return new PaymentSummaryDto(
-            id: payment.id,
-            amount: payment.amount ?? 0m,
-            method: payment.method,
-            status: payment.status,
-            paidAt: payment.paidAt
-        );
+        return orderItems
+            .Where(x => x.product != null)
+            .Select(x => (
+                product: x.product!,
+                quantity: x.quantity ?? 0,
+                unitPrice: x.unitPrice ?? 0m))
+            .ToList();
     }
 }

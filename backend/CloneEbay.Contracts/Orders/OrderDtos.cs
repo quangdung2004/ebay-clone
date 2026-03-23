@@ -27,12 +27,29 @@ public record PaymentSummaryDto(
     public string currency { get; init; } = "USD";
 }
 
+public record TrackingEventDto(
+    string? mainStatus,
+    string? subStatus,
+    string? description,
+    string? location,
+    DateTime? eventTime,
+    decimal? latitude,
+    decimal? longitude,
+    string? geocodeStatus
+);
+
 public record ShippingSummaryDto(
     int id,
     string? carrier,
     string? trackingNumber,
     string? status,
-    DateTime? estimatedArrival
+    DateTime? estimatedArrival,
+    DateTime? shippedAt,
+    DateTime? deliveredAt,
+    string? provider,
+    string? lastCheckpoint,
+    DateTime? lastCheckpointTime,
+    IReadOnlyList<TrackingEventDto>? events = null
 );
 
 public record AddressSummaryDto(
@@ -52,12 +69,17 @@ public record OrderSummaryDto(
     string? buyerName,
     int? addressId,
     DateTime? orderDate,
+    decimal subtotalAmount,
+    decimal shippingFee,
     decimal totalPrice,
     string? status,
+    int addressChangeCount,
+    DateTime? lastAddressChangedAt,
     int totalItems,
     IReadOnlyList<OrderItemSummaryDto> items,
     IReadOnlyList<PaymentSummaryDto> payments
-) {
+)
+{
     public string currency { get; init; } = "USD";
 }
 
@@ -66,13 +88,18 @@ public record OrderDetailDto(
     int? buyerId,
     string? buyerName,
     DateTime? orderDate,
+    decimal subtotalAmount,
+    decimal shippingFee,
     decimal totalPrice,
     string? status,
+    int addressChangeCount,
+    DateTime? lastAddressChangedAt,
     AddressSummaryDto? address,
     IReadOnlyList<OrderItemSummaryDto> items,
     IReadOnlyList<PaymentSummaryDto> payments,
     IReadOnlyList<ShippingSummaryDto> shippings
-) {
+)
+{
     public string currency { get; init; } = "USD";
 }
 

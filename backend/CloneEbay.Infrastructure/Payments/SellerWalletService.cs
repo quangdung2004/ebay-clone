@@ -1,8 +1,9 @@
-﻿using CloneEbay.Application.Payments;
+using CloneEbay.Application.Payments;
 using CloneEbay.Contracts;
 using CloneEbay.Contracts.Payments;
 using CloneEbay.Contracts.Products;
 using CloneEbay.Domain.Entities;
+using CloneEbay.Infrastructure.Common.Helpers;
 using CloneEbay.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -27,27 +28,14 @@ public sealed class SellerWalletService : ISellerWalletService
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.sellerId == sellerId, ct);
 
-        if (wallet == null)
-        {
-            return new SellerWalletDto(
-                sellerId: sellerId,
-                pendingBalance: 0m,
-                availableBalance: 0m,
-                totalEarned: 0m,
-                trustLevel: trust?.level ?? 1,
-                isVerified: trust?.isVerified ?? false,
-                updatedAt: DateTime.UtcNow
-            );
-        }
-
         return new SellerWalletDto(
             sellerId: sellerId,
-            pendingBalance: wallet.pendingBalance,
-            availableBalance: wallet.availableBalance,
-            totalEarned: wallet.totalEarned,
+            pendingBalance: wallet?.pendingBalance ?? 0m,
+            availableBalance: wallet?.availableBalance ?? 0m,
+            totalEarned: wallet?.totalEarned ?? 0m,
             trustLevel: trust?.level ?? 1,
             isVerified: trust?.isVerified ?? false,
-            updatedAt: wallet.updatedAt
+            updatedAt: wallet?.updatedAt ?? DateTime.UtcNow
         );
     }
 
@@ -57,8 +45,7 @@ public sealed class SellerWalletService : ISellerWalletService
         int pageSize,
         CancellationToken ct)
     {
-        page = page <= 0 ? 1 : page;
-        pageSize = pageSize is < 1 or > 100 ? 20 : pageSize;
+        (page, pageSize) = PaginationHelper.Normalize(page, pageSize);
 
         var query = _db.SellerSettlement
             .AsNoTracking()
@@ -70,27 +57,28 @@ public sealed class SellerWalletService : ISellerWalletService
 
         var total = await query.CountAsync(ct);
 
-        var items = await query
-    .Skip((page - 1) * pageSize)
-    .Take(pageSize)
-    .Select(x => new SellerSettlementHistoryItemDto(
-        x.id,
-        x.orderId,
-        x.orderItemId,
-        x.orderItem != null ? (x.orderItem.productId ?? 0) : 0,
-        x.orderItem != null && x.orderItem.product != null
-            ? x.orderItem.product.title ?? "Unknown product"
-            : "Unknown product",
-        x.grossAmount,
-        x.platformFee,
-        x.netAmount,
-        x.status,
-        x.holdReason,
-        x.heldAt,
-        x.availableAt,
-        x.releasedAt
-    ))
-    .ToListAsync(ct);
+        var entities = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        var items = entities.Select(x => new SellerSettlementHistoryItemDto(
+                x.id,
+                x.orderId,
+                x.orderItemId,
+                x.orderItem != null ? (x.orderItem.productId ?? 0) : 0,
+                x.orderItem != null && x.orderItem.product != null
+                    ? x.orderItem.product.title ?? "Unknown product"
+                    : "Unknown product",
+                x.grossAmount,
+                x.platformFee,
+                x.netAmount,
+                x.status,
+                x.holdReason,
+                x.heldAt,
+                x.availableAt,
+                x.releasedAt
+            )).ToList();
 
         return new PagedResponse<SellerSettlementHistoryItemDto>(items, page, pageSize, total);
     }

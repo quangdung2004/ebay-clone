@@ -11,8 +11,10 @@ import './MyOrdersPage.css';
 const TABS = [
   { key: 'ALL', label: 'All Orders' },
   { key: 'PENDING_PAYMENT', label: 'Pending Payment' },
-  { key: 'CONFIRMED', label: 'Confirmed' },
   { key: 'PAID', label: 'Paid' },
+  { key: 'PROCESSING', label: 'Processing' },
+  { key: 'SHIPPED', label: 'Shipped' },
+  { key: 'DELIVERED', label: 'Delivered' },
   { key: 'CANCELLED', label: 'Cancelled' },
 ];
 
@@ -105,7 +107,7 @@ const MyOrdersPage = () => {
          <div className="my-orders-list">
            {filteredOrders.map(order => {
              const latestPayment = getLatestPayment(order);
-             const canCancel = order.status === 'PENDING_PAYMENT' || order.status === 'CONFIRMED';
+             const canCancel = order.status === 'PENDING_PAYMENT';
              const isPayPalPending = order.status === 'PENDING_PAYMENT' && latestPayment?.method === 'PAYPAL';
 
              return (
@@ -121,10 +123,11 @@ const MyOrdersPage = () => {
                          <span className="my-order-value">{formatCurrency(order.totalPrice)}</span>
                       </div>
                     </div>
-                    <div className="my-order-status-block">
-                       <span className="my-order-number">Order #{order.id}</span>
-                       <OrderStatusBadge status={order.status} />
-                    </div>
+                     <div className="my-order-status-block">
+                        <span className="my-order-number">Order #{order.id}</span>
+                        <OrderStatusBadge status={order.status} />
+                        {latestPayment && <span className="my-order-payment-sum">Paid via {latestPayment.method}</span>}
+                     </div>
                  </div>
 
                  <div className="my-order-card-body">
@@ -150,12 +153,19 @@ const MyOrdersPage = () => {
                      {canCancel && (
                         <button 
                            className="btn-cancel-action" 
-                           onClick={() => handleCancel(order.id)}
+                           onClick={(e) => {
+                               e.preventDefault();
+                               handleCancel(order.id);
+                           }}
                            disabled={actionLoadingId === order.id}
                         >
                            {actionLoadingId === order.id ? 'Cancelling...' : 'Cancel Order'}
                         </button>
                      )}
+                     
+                     {order.status === 'SHIPPED' || order.status === 'DELIVERED' ? (
+                       <Link to={`/orders/${order.id}/tracking`} className="btn-track-action">Track Package</Link>
+                     ) : null}
                    </div>
                  </div>
                </div>

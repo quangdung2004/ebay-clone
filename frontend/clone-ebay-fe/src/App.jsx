@@ -20,6 +20,8 @@ import MyProductsPage from './pages/MyProductsPage';
 import EditProductPage from './pages/EditProductPage';
 import MyOrdersPage from './pages/MyOrdersPage';
 import OrderDetailPage from './pages/OrderDetailPage';
+import OrderTrackingPage from './pages/OrderTrackingPage';
+import SellerOrdersPage from './pages/SellerOrdersPage';
 import CheckoutPage from './pages/CheckoutPage';
 import CartPage from './pages/CartPage';
 import AddressesPage from './pages/AddressesPage';
@@ -37,6 +39,12 @@ function App() {
               <Routes>
                 <Route path="/" element={<ProductListPage />} />
                 <Route path="/products/:id" element={<ProductDetailPage />} />
+
+                <Route path="/checkout" element={<ProtectedRoute><CheckoutPage /></ProtectedRoute>} />
+                <Route path="/orders" element={<ProtectedRoute><MyOrdersPage /></ProtectedRoute>} />
+                <Route path="/orders/:id" element={<ProtectedRoute><OrderDetailPage /></ProtectedRoute>} />
+                <Route path="/orders/:id/tracking" element={<ProtectedRoute><OrderTrackingPage /></ProtectedRoute>} />
+                <Route path="/seller/orders" element={<ProtectedRoute><SellerOrdersPage /></ProtectedRoute>} />
 
                 <Route
                   path="/sell"

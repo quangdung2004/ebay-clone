@@ -8,7 +8,17 @@ export const formatCurrency = (amount) => {
 
 export const formatDateTime = (dateString) => {
     if (!dateString) return '';
-    const date = new Date(dateString);
+    // DB or Backend might return MinValue "0001-01-01"
+    if (dateString.startsWith('0001-01-01')) return '--';
+    
+    // Ensure string is treated as UTC if lacking Z or timezone indicator
+    let str = String(dateString);
+    if (!str.endsWith('Z') && !str.includes('+') && !str.match(/-\d{2}:\d{2}$/)) {
+        str += 'Z';
+    }
+    const date = new Date(str);
+    if (isNaN(date.getTime())) return '--';
+
     return new Intl.DateTimeFormat('vi-VN', {
         year: 'numeric',
         month: 'short',

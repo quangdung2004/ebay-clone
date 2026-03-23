@@ -1,3 +1,16 @@
+:root {
+  --primary-color: #0053a0;
+  --primary-hover: #004585;
+  --secondary-color: #3665f3;
+  --text-color: #111827;
+  --bg-color: #f9fafb;
+  --card-bg: #ffffff;
+  --border-color: #e5e7eb;
+  --success-color: #10b981;
+  --danger-color: #ef4444;
+  --warning-color: #f59e0b;
+}
+
 * {
   margin: 0;
   padding: 0;

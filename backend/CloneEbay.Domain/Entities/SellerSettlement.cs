@@ -12,10 +12,10 @@ public partial class SellerSettlement
     public decimal platformFee { get; set; }
     public decimal netAmount { get; set; }
 
-    public string status { get; set; } = "ON_HOLD";
+    public string status { get; set; } = "PENDING";
     public string? holdReason { get; set; }
 
-    public DateTime heldAt { get; set; }
+    public DateTime? heldAt { get; set; }
     public DateTime? availableAt { get; set; }
     public DateTime? releasedAt { get; set; }
 

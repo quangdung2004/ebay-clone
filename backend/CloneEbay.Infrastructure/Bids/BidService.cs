@@ -1,12 +1,13 @@
-﻿using System.Data;
+using System.Data;
 using CloneEbay.Application.Bids;
+using CloneEbay.Application.Common;
 using CloneEbay.Contracts.Bids;
 using CloneEbay.Contracts.Products;
 using CloneEbay.Domain.Entities;
 using CloneEbay.Domain.Exceptions;
 using CloneEbay.Infrastructure.Auctions;
+using CloneEbay.Infrastructure.Common.Helpers;
 using CloneEbay.Infrastructure.Persistence;
-using CloneEbay.Infrastructure.Products;
 using Microsoft.EntityFrameworkCore;
 
 namespace CloneEbay.Infrastructure.Bids;
@@ -36,31 +37,9 @@ public sealed class BidService : IBidService
                 .Include(x => x.Inventory)
                 .FirstOrDefaultAsync(x => x.id == productId && x.isDeleted != true, ct);
 
-            if (product == null)
-                throw new NotFoundException("Product not found", "PRODUCT_NOT_FOUND");
+            await ValidateProductForBidAsync(product, bidderId, ct);
 
-            if (product.isAuction != true)
-                throw new ValidationException("This product is not an auction listing", "PRODUCT_NOT_AUCTION");
-
-            if (product.sellerId == bidderId)
-                throw new ValidationException("You cannot bid on your own product", "BID_SELF_NOT_ALLOWED");
-
-            if (product.auctionEndTime == null)
-                throw new ValidationException("Auction end time is missing", "AUCTION_END_REQUIRED");
-
-            if (product.auctionEndTime <= DateTime.UtcNow)
-            {
-                product.status = ProductStatuses.Ended;
-                await _db.SaveChangesAsync(ct);
-                await tx.CommitAsync(ct);
-
-                throw new ValidationException("Auction already ended", "AUCTION_ALREADY_ENDED");
-            }
-
-            if (!string.Equals(product.status, ProductStatuses.Active, StringComparison.OrdinalIgnoreCase))
-                throw new ValidationException("Auction is not active", "AUCTION_NOT_ACTIVE");
-
-            var currentBid = product.Bid.Any()
+            var currentBid = product!.Bid.Any()
                 ? product.Bid.Max(x => x.amount) ?? 0
                 : product.price ?? 0;
 
@@ -108,7 +87,6 @@ public sealed class BidService : IBidService
         catch
         {
             // Không throw để tránh làm fail request sau khi bid đã commit thành công.
-            // Có thể thêm logger ở đây nếu muốn.
         }
 
         return result;
@@ -116,8 +94,7 @@ public sealed class BidService : IBidService
 
     public async Task<PagedResponse<BidHistoryItemDto>> GetBidHistoryAsync(int productId, int page, int pageSize, CancellationToken ct)
     {
-        page = page <= 0 ? 1 : page;
-        pageSize = pageSize is < 1 or > 100 ? 20 : pageSize;
+        (page, pageSize) = PaginationHelper.Normalize(page, pageSize);
 
         var productExists = await _db.Product
             .AsNoTracking()
@@ -148,5 +125,33 @@ public sealed class BidService : IBidService
         )).ToList();
 
         return new PagedResponse<BidHistoryItemDto>(items, page, pageSize, total);
+    }
+
+    // ── Validation ──────────────────────────────────────────────────
+
+    private async Task ValidateProductForBidAsync(Product? product, int bidderId, CancellationToken ct)
+    {
+        if (product == null)
+            throw new NotFoundException("Product not found", "PRODUCT_NOT_FOUND");
+
+        if (product.isAuction != true)
+            throw new ValidationException("This product is not an auction listing", "PRODUCT_NOT_AUCTION");
+
+        if (product.sellerId == bidderId)
+            throw new ValidationException("You cannot bid on your own product", "BID_SELF_NOT_ALLOWED");
+
+        if (product.auctionEndTime == null)
+            throw new ValidationException("Auction end time is missing", "AUCTION_END_REQUIRED");
+
+        if (product.auctionEndTime <= DateTime.UtcNow)
+        {
+            product.status = ProductStatuses.Ended;
+            await _db.SaveChangesAsync(ct);
+
+            throw new ValidationException("Auction already ended", "AUCTION_ALREADY_ENDED");
+        }
+
+        if (!string.Equals(product.status, ProductStatuses.Active, StringComparison.OrdinalIgnoreCase))
+            throw new ValidationException("Auction is not active", "AUCTION_NOT_ACTIVE");
     }
 }

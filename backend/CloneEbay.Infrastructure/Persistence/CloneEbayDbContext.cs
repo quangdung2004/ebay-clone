@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using CloneEbay.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -42,6 +42,10 @@ public partial class CloneEbayDbContext : DbContext
     public virtual DbSet<SellerSettlement> SellerSettlement { get; set; }
     public virtual DbSet<SellerTrustProfile> SellerTrustProfile { get; set; }
 
+    public virtual DbSet<ShippingTrackingEvent> ShippingTrackingEvent { get; set; }
+    public virtual DbSet<ShippingWebhookEvent> ShippingWebhookEvent { get; set; }
+
+    public virtual DbSet<OrderAddressChangeHistory> OrderAddressChangeHistory { get; set; }
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
 #warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
         => optionsBuilder.UseSqlServer("Server=.;Database=CloneEbayDB;User Id=sa;Password=123;TrustServerCertificate=True;");
@@ -176,6 +180,9 @@ public partial class CloneEbayDbContext : DbContext
             entity.Property(e => e.orderDate).HasColumnType("datetime");
             entity.Property(e => e.status).HasMaxLength(20);
             entity.Property(e => e.totalPrice).HasColumnType("decimal(10, 2)");
+            entity.Property(e => e.subtotalAmount).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.shippingFee).HasColumnType("decimal(18, 2)");
+            entity.Property(e => e.lastAddressChangedAt).HasColumnType("datetime");
 
             entity.HasOne(d => d.address).WithMany(p => p.OrderTable)
                 .HasForeignKey(d => d.addressId)
@@ -257,9 +264,20 @@ public partial class CloneEbayDbContext : DbContext
             entity.HasKey(e => e.id).HasName("PK__Shipping__3213E83F4C7AE977");
 
             entity.Property(e => e.carrier).HasMaxLength(100);
-            entity.Property(e => e.estimatedArrival).HasColumnType("datetime");
-            entity.Property(e => e.status).HasMaxLength(50);
             entity.Property(e => e.trackingNumber).HasMaxLength(100);
+            entity.Property(e => e.status).HasMaxLength(50);
+            entity.Property(e => e.estimatedArrival).HasColumnType("datetime");
+            entity.Property(e => e.shippedAt).HasColumnType("datetime");
+            entity.Property(e => e.deliveredAt).HasColumnType("datetime");
+            entity.Property(e => e.provider).HasMaxLength(50);
+            entity.Property(e => e.providerTrackingId).HasMaxLength(100);
+            entity.Property(e => e.lastSyncedAt).HasColumnType("datetime");
+            entity.Property(e => e.lastCheckpoint).HasMaxLength(500);
+            entity.Property(e => e.lastCheckpointTime).HasColumnType("datetime");
+            entity.Property(e => e.rawLastPayload).HasColumnType("nvarchar(max)");
+
+            entity.HasIndex(e => e.orderId);
+            entity.HasIndex(e => e.trackingNumber);
 
             entity.HasOne(d => d.order).WithMany(p => p.ShippingInfo)
                 .HasForeignKey(d => d.orderId)
@@ -441,6 +459,10 @@ public partial class CloneEbayDbContext : DbContext
 
             entity.HasKey(e => e.id);
 
+            entity.HasIndex(e => new { e.sellerId, e.status });
+            entity.HasIndex(e => new { e.status, e.availableAt });
+            entity.HasIndex(e => e.orderId);
+
             entity.Property(e => e.grossAmount).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.platformFee).HasColumnType("decimal(18, 2)");
             entity.Property(e => e.netAmount).HasColumnType("decimal(18, 2)");
@@ -463,6 +485,82 @@ public partial class CloneEbayDbContext : DbContext
             entity.HasOne(d => d.seller)
                 .WithMany(p => p.SellerSettlement)
                 .HasForeignKey(d => d.sellerId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ShippingTrackingEvent>(entity =>
+        {
+            entity.ToTable("ShippingTrackingEvent");
+
+            entity.HasKey(e => e.id);
+
+            entity.Property(e => e.provider).HasMaxLength(50);
+            entity.Property(e => e.trackingNumber).HasMaxLength(100);
+            entity.Property(e => e.mainStatus).HasMaxLength(50);
+            entity.Property(e => e.subStatus).HasMaxLength(100);
+            entity.Property(e => e.description).HasMaxLength(1000);
+            entity.Property(e => e.location).HasMaxLength(255);
+            entity.Property(e => e.eventTime).HasColumnType("datetime");
+            entity.Property(e => e.rawPayload).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.latitude).HasColumnType("decimal(10, 6)");
+            entity.Property(e => e.longitude).HasColumnType("decimal(10, 6)");
+            entity.Property(e => e.normalizedLocation).HasMaxLength(255);
+            entity.Property(e => e.geocodeStatus).HasMaxLength(50);
+            entity.Property(e => e.createdAt).HasColumnType("datetime");
+
+            entity.HasIndex(e => new { e.shippingInfoId, e.eventTime });
+
+            entity.HasOne(d => d.shippingInfo)
+                .WithMany(p => p.ShippingTrackingEvent)
+                .HasForeignKey(d => d.shippingInfoId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ShippingWebhookEvent>(entity =>
+        {
+            entity.ToTable("ShippingWebhookEvent");
+
+            entity.HasKey(e => e.id);
+
+            entity.Property(e => e.provider).HasMaxLength(50);
+            entity.Property(e => e.eventType).HasMaxLength(100);
+            entity.Property(e => e.trackingNumber).HasMaxLength(100);
+            entity.Property(e => e.tag).HasMaxLength(100);
+            entity.Property(e => e.signature).HasMaxLength(255);
+            entity.Property(e => e.payload).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.processedAt).HasColumnType("datetime");
+            entity.Property(e => e.createdAt).HasColumnType("datetime");
+
+            entity.HasIndex(e => e.trackingNumber);
+        });
+
+        modelBuilder.Entity<OrderAddressChangeHistory>(entity =>
+        {
+            entity.ToTable("OrderAddressChangeHistory");
+
+            entity.HasKey(e => e.id);
+
+            entity.Property(e => e.reason).HasMaxLength(500);
+            entity.Property(e => e.changedAt).HasColumnType("datetime");
+
+            entity.HasOne(d => d.order)
+                .WithMany(p => p.OrderAddressChangeHistory)
+                .HasForeignKey(d => d.orderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(d => d.oldAddress)
+                .WithMany()
+                .HasForeignKey(d => d.oldAddressId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(d => d.newAddress)
+                .WithMany()
+                .HasForeignKey(d => d.newAddressId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(d => d.changedByUser)
+                .WithMany()
+                .HasForeignKey(d => d.changedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

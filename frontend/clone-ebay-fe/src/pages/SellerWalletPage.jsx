@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useSellerWallet } from '../hooks/useSellerWallet';
 import { useSellerSettlements } from '../hooks/useSellerSettlements';
 import { formatCurrency, formatDateTime } from '../utils/productUtils';
@@ -99,7 +100,7 @@ const SellerWalletPage = () => {
                   <tr>
                     <th>Ref ID</th>
                     <th>Product</th>
-                    <th>Date</th>
+                    <th>Hold Date</th>
                     <th>Gross</th>
                     <th>Fee</th>
                     <th>Net</th>
@@ -113,7 +114,9 @@ const SellerWalletPage = () => {
                       <td>
                         <div className="ref-ids">
                           <span title="Settlement ID">S-#{item.id}</span>
-                          <span title="Order ID" className="ref-order-id">O-#{item.orderId}</span>
+                          <span title="Order ID" className="ref-order-id">
+                            <Link to={`/orders/${item.orderId}`}>O-#{item.orderId}</Link>
+                          </span>
                         </div>
                       </td>
                       <td>
@@ -130,7 +133,7 @@ const SellerWalletPage = () => {
                           {SETTLEMENT_STATUS_LABELS[item.status] || item.status}
                         </span>
                       </td>
-                      <td>{item.availableAt ? formatDateTime(item.availableAt) : '--'}</td>
+                      <td>{formatDateTime(item.availableAt)}</td>
                     </tr>
                   ))}
                 </tbody>

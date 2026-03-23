@@ -1,4 +1,5 @@
-﻿using AutoMapper;
+using AutoMapper;
+using CloneEbay.Application.Common;
 using CloneEbay.Contracts.Products;
 using CloneEbay.Domain.Entities;
 

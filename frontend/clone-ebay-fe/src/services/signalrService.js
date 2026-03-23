@@ -1,7 +1,6 @@
 import * as signalR from '@microsoft/signalr';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
-const HUB_URL = `${BASE_URL}/hubs/auction`;
+const HUB_URL = import.meta.env.VITE_HUB_URL || '/hubs/auction';
 
 class SignalRService {
     constructor() {
@@ -11,11 +10,10 @@ class SignalRService {
     async connect() {
         if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) return;
 
-        const token = localStorage.getItem('accessToken');
-
         this.connection = new signalR.HubConnectionBuilder()
             .withUrl(HUB_URL, {
-                accessTokenFactory: () => token
+                accessTokenFactory: () => localStorage.getItem('accessToken') || '',
+                withCredentials: true,
             })
             .withAutomaticReconnect()
             .build();

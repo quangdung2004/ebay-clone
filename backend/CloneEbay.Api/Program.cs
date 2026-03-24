@@ -184,13 +184,13 @@ builder.Services.AddRateLimiter(options =>
             : $"ip:{ip}";
 
         return RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: key,
-            factory: _ => new FixedWindowRateLimiterOptions
+            partitionKey: ip,
+            factory: partition => new FixedWindowRateLimiterOptions
             {
+                AutoReplenishment = true,
                 PermitLimit = 120,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0,
-                AutoReplenishment = true
+                QueueLimit = 20,
+                Window = TimeSpan.FromMinutes(1)
             });
     });
 

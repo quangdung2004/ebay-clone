@@ -90,6 +90,8 @@ services:
     image: redis:latest
     container_name: redis
     restart: always
+    environment:
+      - REDIS_PASSWORD=nutrition
     command: ["redis-server", "--requirepass", "nutrition"]
     networks:
       - ebay-net

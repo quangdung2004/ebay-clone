@@ -45,6 +45,8 @@ services:
       - mailhog
     networks:
       - ebay-net
+    volumes:
+      - product_uploads:/app/wwwroot/uploads
 
   backend-2:
     build:
@@ -81,6 +83,8 @@ services:
       - mailhog
     networks:
       - ebay-net
+    volumes:
+      - product_uploads:/app/wwwroot/uploads
 
   redis:
     image: redis:latest
@@ -124,3 +128,4 @@ networks:
 
 volumes:
   sql_data:
+  product_uploads:

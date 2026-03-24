@@ -47,7 +47,8 @@ public static class DependencyInjection
         services.AddAutoMapper(typeof(ProductProfile).Assembly);
 
         // SignalR
-        services.AddSignalR();
+        services.AddSignalR()
+            .AddStackExchangeRedis(configuration["Redis:Connection"]!);
 
         // Diagnostics
         services.AddScoped<ITransactionContextAccessor, TransactionContextAccessor>();
